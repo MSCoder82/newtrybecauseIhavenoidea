@@ -1,0 +1,5 @@
+{
+  "name": "Copy of USACE PAO KPI Tracker",
+  "description": "A dashboard for the U.S. Army Corps of Engineers Public Affairs Office to track and visualize Key Performance Indicators (KPIs). This app is designed with a Supabase-first mindset for future integration.",
+  "requestFramePermissions": []
+}
