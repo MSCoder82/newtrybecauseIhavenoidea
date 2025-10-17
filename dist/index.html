@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>USACE PAO KPI Tracker</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'usace-red': '#D42127',
+              'usace-blue': '#003366',
+              'navy': {
+                '50': '#f0f4f8',
+                '100': '#dde7f0',
+                '200': '#c2d5e3',
+                '300': '#9cb9d1',
+                '400': '#7195b9',
+                '500': '#55779d',
+                '600': '#446184',
+                '700': '#3a516e',
+                '800': '#33455d',
+                '900': '#2f3d51',
+                '950': '#1d2635',
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      @keyframes fade-in-down {
+        0% {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .animate-fade-in-down {
+        animation: fade-in-down 0.5s ease-out forwards;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "react/": "https://aistudiocdn.com/react@^18.2.0/",
+          "react": "https://aistudiocdn.com/react@^18.2.0",
+          "recharts": "https://aistudiocdn.com/recharts@^2.12.0",
+          "react-dom/": "https://aistudiocdn.com/react-dom@^18.2.0/",
+          "react-dom/client": "https://aistudiocdn.com/react-dom@^18.2.0/client",
+          "@google/genai": "https://aistudiocdn.com/@google/genai@^1.22.0",
+          "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.45.0"
+        }
+      }
+    </script>
+    <script type="module" crossorigin src="/assets/index-DhRezGsK.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-GAzjcR1R.css">
+  </head>
+  <body class="bg-navy-50 dark:bg-navy-950">
+    <div id="root"></div>
+  </body>
+</html>

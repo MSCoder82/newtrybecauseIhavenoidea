@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 410 404">
+  <defs>
+    <linearGradient id="viteGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#41D1FF" />
+      <stop offset="100%" stop-color="#BD34FE" />
+    </linearGradient>
+    <linearGradient id="viteGradientInner" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#FFD200" />
+      <stop offset="100%" stop-color="#F7971E" />
+    </linearGradient>
+  </defs>
+  <path fill="url(#viteGradient)" d="M399.641 54.7495L215.909 388.559c-3.419 6.3301-12.364 6.2887-15.733-.0749L10.503 54.8208c-3.9184-7.2706 2.1165-15.9601 10.2713-15.2403l186.084 16.3667c1.2402.1089 2.4862.1084 3.726-.0015l178.388-16.3658c8.135-.7463 14.177 7.8567 10.296 15.1256z" />
+  <path fill="url(#viteGradientInner)" d="M292.965.722102l-175.545 30.700298c-4.512 0-.684 6.3185 1.885 8.2549l50.3 37.0433c3.356 2.4716 8.096 2.3812 11.358-.2071l125.305-98.3555c4.518-3.5497 1.901-10.9676-4.302-10.435398z" />
+</svg>
