@@ -667,52 +667,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
           )}
         </div>
       </section>
-      <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-xl font-semibold text-navy-900 dark:text-white">Latest posts (Sprinklr)</h3>
-            <p className="text-sm text-gray-600 dark:text-navy-300">Fetch recent posts from selected accounts via Sprinklr.</p>
-          </div>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <label className="flex-1">
-            <span className="text-sm font-medium text-navy-900 dark:text-navy-100">Account IDs (CSV)</span>
-            <input
-              value={sprinklrAccountsCsv}
-              onChange={(e) => setSprinklrAccountsCsv(e.target.value)}
-              placeholder="acc_123,acc_456"
-              className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-usace-blue focus:outline-none focus:ring-2 focus:ring-usace-blue dark:border-navy-600 dark:bg-navy-800 dark:text-white"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={loadSprinklrPosts}
-            disabled={sprinklrLoading}
-            className="w-full sm:w-auto rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue focus:ring-offset-2 dark:focus:ring-offset-navy-900"
-          >
-            {sprinklrLoading ? 'Loading…' : 'Load posts'}
-          </button>
-        </div>
-        {sprinklrError && (
-          <p className="mt-3 text-sm text-red-600 dark:text-red-300">{sprinklrError}</p>
-        )}
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {sprinklrPosts.map((p: any, idx: number) => (
-            <div key={p.id || idx} className="rounded-md border border-gray-200 p-4 dark:border-navy-700">
-              <div className="text-sm text-gray-500 dark:text-navy-300 mb-1">{p.network || p.channel || 'Post'}</div>
-              <div className="font-semibold text-navy-900 dark:text-white mb-1">{p.title || p.text || p.message || '(untitled)'}</div>
-              {p.url && (
-                <a href={p.url} target="_blank" rel="noreferrer" className="text-usace-blue text-sm hover:underline">
-                  View post
-                </a>
-              )}
-              <div className="text-xs text-gray-500 dark:text-navy-300 mt-2">
-                {p.published_at || p.created_at || ''}
-              </div>
-            </div)
-          ))}
-        </div>
-      </section>
+      
       <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
         <h2 className="text-2xl font-bold text-navy-900 dark:text-white mb-4">Social Content Library</h2>
         <p className="text-gray-600 dark:text-navy-300 mb-6">
