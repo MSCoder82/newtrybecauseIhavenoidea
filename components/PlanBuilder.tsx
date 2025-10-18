@@ -1,7 +1,6 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { SparklesIcon } from './Icons';
 
 const STEP_PROMPTS = {
@@ -83,16 +82,16 @@ const PlanBuilder: React.FC = () => {
         }
 
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash',
-              contents: fullPrompt,
-              config: {
-                systemInstruction: systemInstruction,
-              },
+            const res = await fetch('/api/gemini', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: `${systemInstruction}\n\n${fullPrompt}` })
             });
-
-            setGeneratedPlan(response.text);
+            if (!res.ok) {
+                throw new Error(`API error ${res.status}`);
+            }
+            const data = await res.json();
+            setGeneratedPlan(data?.response ?? '');
             setCurrentStep(12);
         } catch(error) {
             console.error("Error generating plan:", error);
