@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { SparklesIcon } from './Icons';
+import { supabase } from '../lib/supabase';
 
 const STEP_PROMPTS = {
   1: { title: "Step 1: Define the Issue", prompt: "Let's start with the basics. What is the core issue or project you need a communication plan for? Why is communication necessary right now?" },
@@ -91,8 +92,24 @@ const PlanBuilder: React.FC = () => {
                 throw new Error(`API error ${res.status}`);
             }
             const data = await res.json();
-            setGeneratedPlan(data?.response ?? '');
+            const generated = data?.response ?? '';
+            setGeneratedPlan(generated);
             setCurrentStep(12);
+
+            // Save generated plan to Supabase for later reference
+            try {
+              const { data: userData } = await supabase.auth.getUser();
+              const userId = userData?.user?.id;
+              await supabase.from('communication_plans').insert([
+                {
+                  title: `Communication Plan - ${new Date().toISOString()}`,
+                  content: generated,
+                  user_id: userId,
+                },
+              ]);
+            } catch (persistErr) {
+              console.error('Failed to persist generated plan:', persistErr);
+            }
         } catch(error) {
             console.error("Error generating plan:", error);
             setGeneratedPlan("Sorry, an error occurred while generating the plan. Please check your connection and API key, then try again.");
