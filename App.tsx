@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { KpiDataPoint, View, Role, Campaign, Profile, KpiGoal } from './types';
 import { NAVIGATION_ITEMS } from './constants';
 import Header from './components/Header';
@@ -27,6 +27,7 @@ const App: React.FC = () => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const lastUserIdRef = useRef<string | null>(null);
   const { theme, toggleTheme } = useTheme();
   const { showToast } = useNotification();
 
@@ -84,6 +85,7 @@ const App: React.FC = () => {
       }
 
       setSession(session);
+      lastUserIdRef.current = session?.user?.id ?? null;
 
       if (!session) {
         setProfile(null);
@@ -174,7 +176,9 @@ const App: React.FC = () => {
         return;
       }
 
-      if (silentEvents.includes(event)) {
+      const sameUser = session?.user?.id && session.user.id === lastUserIdRef.current;
+
+      if (silentEvents.includes(event) || (sameUser && (event === 'SIGNED_IN' || event === 'USER_UPDATED'))) {
         await handleSession(session, { fetchData: false });
         return;
       }
