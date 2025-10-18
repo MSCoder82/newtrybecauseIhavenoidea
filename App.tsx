@@ -308,7 +308,7 @@ const App: React.FC = () => {
       case 'goals':
         return <GoalSetter goals={goals} onAddGoal={addGoal} campaigns={campaigns} />;
       case 'social-media':
-        return <SocialMedia role={profile.role} campaigns={campaigns} />;
+        return <SocialMedia role={profile.role} campaigns={campaigns} teamId={profile.teamId} />;
       case 'profile':
         return <ProfilePage session={session!} profile={profile} onProfileUpdate={onProfileUpdate} />;
       default:

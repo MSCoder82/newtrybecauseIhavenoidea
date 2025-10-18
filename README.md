@@ -27,8 +27,18 @@ This repo is configured for Vercel using `vercel.json` and an `api/` serverless 
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
    - `GEMINI_API_KEY`
+   - `SPRINKLR_CLIENT_ID`, `SPRINKLR_CLIENT_SECRET`
+   - `SPRINKLR_BASE_URL` (default `https://api.sprinklr.com`)
+   - `SPRINKLR_POSTS_ENDPOINT` (tenant-specific list endpoint)
+   - `SPRINKLR_ALLOWED_ACCOUNT_IDS` (CSV of allowed account IDs)
 3. Deploy. Vercel will run `npm run build` and serve `dist/`. The app’s deep links are handled via rewrites.
 
 Notes:
 - Supabase anon key is intended for client use, but ensure Row Level Security (RLS) policies are configured appropriately in your database.
 - Gemini API calls run through `api/gemini.ts` so your `GEMINI_API_KEY` is never exposed client-side.
+
+## Sprinklr Integration
+
+- Serverless proxy: `api/sprinklr.ts` performs OAuth client-credentials and fetches posts from `SPRINKLR_POSTS_ENDPOINT`, filtered by `accounts` (CSV) and `limit`.
+- Configure env vars as above. You can pass `?accounts=acc_1,acc_2&limit=20` from the UI to restrict to your unit’s accounts.
+- For stricter control, set `SPRINKLR_ALLOWED_ACCOUNT_IDS` and ignore client-supplied accounts.

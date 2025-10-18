@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Campaign, Role } from '../types';
+import { supabase } from '../lib/supabase';
 
 const SOCIAL_NETWORKS = ['Facebook', 'Twitter', 'Instagram', 'LinkedIn', 'YouTube', 'Other'] as const;
 
@@ -144,6 +145,24 @@ interface FeedConnection {
 interface SocialMediaProps {
   role: Role;
   campaigns: Campaign[];
+  teamId: number;
+}
+
+interface SavedAccount {
+  id: number;
+  account_id: string;
+  label?: string;
+  created_at: string;
+}
+
+interface SavedPost {
+  id: number;
+  url: string;
+  network?: string | null;
+  title?: string | null;
+  published_at?: string | null;
+  campaign_id?: number | null;
+  created_at: string;
 }
 
 type SocialMediaFormState = {
@@ -171,8 +190,14 @@ const formatDate = (value: string) => new Intl.DateTimeFormat('en-US', {
   minute: '2-digit',
 }).format(new Date(value));
 
-const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns }) => {
+const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) => {
   const [entries, setEntries] = useState<SocialMediaEntry[]>([]);
+  const [sprinklrPosts, setSprinklrPosts] = useState<any[]>([]);
+  const [sprinklrLoading, setSprinklrLoading] = useState(false);
+  const [sprinklrError, setSprinklrError] = useState<string | null>(null);
+  const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
+  const [newAccountId, setNewAccountId] = useState('');
+  const [newAccountLabel, setNewAccountLabel] = useState('');
   const [connections, setConnections] = useState<FeedConnection[]>(INITIAL_CONNECTIONS);
   const [formState, setFormState] = useState<SocialMediaFormState>({
     network: SOCIAL_NETWORKS[0],
@@ -184,6 +209,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns }) => {
   });
 
   const hasEntries = entries.length > 0;
+  const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
 
   const availableCampaigns = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
@@ -236,6 +262,104 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns }) => {
 
   const handleDeleteEntry = (id: number) => {
     setEntries((prev) => prev.filter((entry) => entry.id !== id));
+  };
+
+  // Load saved Sprinklr accounts for this team
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase
+        .from('social_accounts')
+        .select('id, account_id, label, created_at')
+        .order('created_at', { ascending: false });
+      if (data) setSavedAccounts(data as SavedAccount[]);
+    };
+    load();
+  }, [teamId]);
+
+  const addAccount = async () => {
+    if (!newAccountId.trim()) return;
+    const { data, error } = await supabase
+      .from('social_accounts')
+      .insert([{ account_id: newAccountId.trim(), label: newAccountLabel || null }])
+      .select('id, account_id, label, created_at')
+      .single();
+    if (!error && data) {
+      setSavedAccounts((prev) => [data as SavedAccount, ...prev]);
+      setNewAccountId('');
+      setNewAccountLabel('');
+    }
+  };
+
+  const removeAccount = async (id: number) => {
+    const { error } = await supabase.from('social_accounts').delete().eq('id', id);
+    if (!error) setSavedAccounts((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const loadSprinklrPosts = async () => {
+    try {
+      setSprinklrLoading(true);
+      setSprinklrError(null);
+      const qs = new URLSearchParams();
+      const accountsCsv = savedAccounts.map(a => a.account_id).filter(Boolean).join(',');
+      if (!accountsCsv) {
+        setSprinklrError('Add at least one account to monitor.');
+        setSprinklrLoading(false);
+        return;
+      }
+      qs.set('accounts', accountsCsv);
+      qs.set('limit', '20');
+      const res = await fetch(`/api/sprinklr?${qs.toString()}`);
+      if (!res.ok) throw new Error(`Sprinklr fetch failed: ${res.status}`);
+      const json = await res.json();
+      const fetched = Array.isArray(json.data) ? json.data : (json.data?.items ?? []);
+      setSprinklrPosts(fetched);
+
+      // Persist minimal info (URL + metadata) to Supabase
+      const minimal = fetched
+        .map((p: any) => ({
+          url: p.url || p.link || '',
+          network: p.network || p.channel || null,
+          title: p.title || p.text || p.message || null,
+          published_at: p.published_at || p.created_at || null,
+        }))
+        .filter((p: any) => p.url);
+
+      if (minimal.length > 0) {
+        await supabase
+          .from('social_posts')
+          .upsert(minimal, { onConflict: 'team_id,url', ignoreDuplicates: true });
+        await loadSavedPosts();
+      }
+    } catch (e: any) {
+      setSprinklrError(e.message || 'Failed to load Sprinklr posts');
+    } finally {
+      setSprinklrLoading(false);
+    }
+  };
+
+  const loadSavedPosts = async () => {
+    const { data } = await supabase
+      .from('social_posts')
+      .select('id, url, network, title, published_at, campaign_id, created_at')
+      .order('published_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false });
+    if (data) setSavedPosts(data as SavedPost[]);
+  };
+
+  useEffect(() => {
+    loadSavedPosts();
+  }, [teamId]);
+
+  const assignCampaign = async (postId: number, campaignId: number | null) => {
+    const { error } = await supabase
+      .from('social_posts')
+      .update({ campaign_id: campaignId })
+      .eq('id', postId);
+    if (!error) {
+      setSavedPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, campaign_id: campaignId } : p)),
+      );
+    }
   };
 
   const importFeedEntries = (network: SocialNetwork, options?: { generateNew?: boolean }) => {
@@ -396,6 +520,199 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns }) => {
 
   return (
     <div className="space-y-6">
+      <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-xl font-semibold text-navy-900 dark:text-white">Monitored Sprinklr Accounts</h3>
+            <p className="text-sm text-gray-600 dark:text-navy-300">Add the account IDs you want to monitor for your unit.</p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="flex-1">
+            <span className="text-sm font-medium text-navy-900 dark:text-navy-100">Account ID</span>
+            <input
+              value={newAccountId}
+              onChange={(e) => setNewAccountId(e.target.value)}
+              placeholder="acc_123"
+              className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-usace-blue focus:outline-none focus:ring-2 focus:ring-usace-blue dark:border-navy-600 dark:bg-navy-800 dark:text-white"
+            />
+          </label>
+          <label className="flex-1">
+            <span className="text-sm font-medium text-navy-900 dark:text-navy-100">Label (optional)</span>
+            <input
+              value={newAccountLabel}
+              onChange={(e) => setNewAccountLabel(e.target.value)}
+              placeholder="District Facebook"
+              className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-usace-blue focus:outline-none focus:ring-2 focus:ring-usace-blue dark:border-navy-600 dark:bg-navy-800 dark:text-white"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={addAccount}
+            className="w-full sm:w-auto rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue focus:ring-offset-2 dark:focus:ring-offset-navy-900"
+          >
+            Add account
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {savedAccounts.map((a) => (
+            <div key={a.id} className="flex items-center justify-between rounded-md border border-gray-200 p-3 dark:border-navy-700">
+              <div>
+                <div className="font-semibold text-navy-900 dark:text-white">{a.label || a.account_id}</div>
+                {a.label && (
+                  <div className="text-xs text-gray-500 dark:text-navy-300">{a.account_id}</div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => removeAccount(a.id)}
+                className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-800/40 dark:bg-red-900/30 dark:text-red-200"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          {savedAccounts.length === 0 && (
+            <div className="text-sm text-gray-600 dark:text-navy-300">No accounts added yet.</div>
+          )}
+        </div>
+      </section>
+
+      <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-xl font-semibold text-navy-900 dark:text-white">Saved posts</h3>
+            <p className="text-sm text-gray-600 dark:text-navy-300">Auto-saved from Sprinklr. Only URLs and basic metadata are stored.</p>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-navy-700">
+            <thead>
+              <tr className="bg-navy-50 dark:bg-navy-900">
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-navy-200">Network</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-navy-200">Title</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-navy-200">URL</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-navy-200">Published</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-navy-200">Campaign</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-navy-700">
+              {savedPosts.map((post) => (
+                <tr key={post.id} className="hover:bg-navy-50/60 dark:hover:bg-navy-900/50">
+                  <td className="px-4 py-3 text-sm font-medium text-navy-900 dark:text-white">{post.network || '—'}</td>
+                  <td className="px-4 py-3 text-sm text-navy-800 dark:text-navy-100">{post.title || '(untitled)'}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <a href={post.url} target="_blank" rel="noreferrer" className="text-usace-blue hover:underline">
+                      {post.url}
+                    </a>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-navy-800 dark:text-navy-100">{post.published_at ? formatDate(post.published_at) : '—'}</td>
+                  <td className="px-4 py-3 text-sm text-navy-800 dark:text-navy-100">
+                    <select
+                      value={post.campaign_id ?? ''}
+                      onChange={(e) => assignCampaign(post.id, e.target.value ? Number(e.target.value) : null)}
+                      className="rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-2 py-1 text-gray-900 dark:text-white focus:border-usace-blue focus:outline-none"
+                    >
+                      <option value="">Not linked</option>
+                      {availableCampaigns.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {savedPosts.length === 0 && (
+            <div className="text-sm text-gray-600 dark:text-navy-300 mt-3">No saved posts yet. Use "Load posts" above.</div>
+          )}
+        </div>
+      </section>
+
+      <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-xl font-semibold text-navy-900 dark:text-white">Latest posts (Sprinklr)</h3>
+            <p className="text-sm text-gray-600 dark:text-navy-300">Fetch recent posts from your monitored accounts via Sprinklr.</p>
+          </div>
+          <button
+            type="button"
+            onClick={loadSprinklrPosts}
+            disabled={sprinklrLoading}
+            className="rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue"
+          >
+            {sprinklrLoading ? 'Loading…' : 'Load posts'}
+          </button>
+        </div>
+        {sprinklrError && (
+          <p className="mt-3 text-sm text-red-600 dark:text-red-300">{sprinklrError}</p>
+        )}
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {sprinklrPosts.map((p: any, idx: number) => (
+            <div key={p.id || idx} className="rounded-md border border-gray-200 p-4 dark:border-navy-700">
+              <div className="text-sm text-gray-500 dark:text-navy-300 mb-1">{p.network || p.channel || 'Post'}</div>
+              <div className="font-semibold text-navy-900 dark:text-white mb-1">{p.title || p.text || p.message || '(untitled)'}</div>
+              {p.url && (
+                <a href={p.url} target="_blank" rel="noreferrer" className="text-usace-blue text-sm hover:underline">
+                  View post
+                </a>
+              )}
+              <div className="text-xs text-gray-500 dark:text-navy-300 mt-2">
+                {p.published_at || p.created_at || ''}
+              </div>
+            </div>
+          ))}
+          {sprinklrPosts.length === 0 && (
+            <div className="text-sm text-gray-600 dark:text-navy-300">No posts loaded.</div>
+          )}
+        </div>
+      </section>
+      <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-xl font-semibold text-navy-900 dark:text-white">Latest posts (Sprinklr)</h3>
+            <p className="text-sm text-gray-600 dark:text-navy-300">Fetch recent posts from selected accounts via Sprinklr.</p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="flex-1">
+            <span className="text-sm font-medium text-navy-900 dark:text-navy-100">Account IDs (CSV)</span>
+            <input
+              value={sprinklrAccountsCsv}
+              onChange={(e) => setSprinklrAccountsCsv(e.target.value)}
+              placeholder="acc_123,acc_456"
+              className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-usace-blue focus:outline-none focus:ring-2 focus:ring-usace-blue dark:border-navy-600 dark:bg-navy-800 dark:text-white"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={loadSprinklrPosts}
+            disabled={sprinklrLoading}
+            className="w-full sm:w-auto rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue focus:ring-offset-2 dark:focus:ring-offset-navy-900"
+          >
+            {sprinklrLoading ? 'Loading…' : 'Load posts'}
+          </button>
+        </div>
+        {sprinklrError && (
+          <p className="mt-3 text-sm text-red-600 dark:text-red-300">{sprinklrError}</p>
+        )}
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {sprinklrPosts.map((p: any, idx: number) => (
+            <div key={p.id || idx} className="rounded-md border border-gray-200 p-4 dark:border-navy-700">
+              <div className="text-sm text-gray-500 dark:text-navy-300 mb-1">{p.network || p.channel || 'Post'}</div>
+              <div className="font-semibold text-navy-900 dark:text-white mb-1">{p.title || p.text || p.message || '(untitled)'}</div>
+              {p.url && (
+                <a href={p.url} target="_blank" rel="noreferrer" className="text-usace-blue text-sm hover:underline">
+                  View post
+                </a>
+              )}
+              <div className="text-xs text-gray-500 dark:text-navy-300 mt-2">
+                {p.published_at || p.created_at || ''}
+              </div>
+            </div)
+          ))}
+        </div>
+      </section>
       <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
         <h2 className="text-2xl font-bold text-navy-900 dark:text-white mb-4">Social Content Library</h2>
         <p className="text-gray-600 dark:text-navy-300 mb-6">
