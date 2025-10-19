@@ -17,6 +17,8 @@ export default async function handler(req: any, res: any) {
     const tokenEndpoint = process.env.SPRINKLR_TOKEN_ENDPOINT || `${baseUrl}/oauth/token`;
     const postsEndpoint = process.env.SPRINKLR_POSTS_ENDPOINT; // e.g., `${baseUrl}/v1/posts` (set per your tenant/API package)
     const defaultAccountsCsv = process.env.SPRINKLR_ALLOWED_ACCOUNT_IDS || '';
+    const accountsParamName = process.env.SPRINKLR_ACCOUNTS_PARAM || 'accounts';
+    const staticNetwork = process.env.SPRINKLR_NETWORK || '';
 
     if (!clientId || !clientSecret) {
       throw new Error('Missing SPRINKLR_CLIENT_ID/SPRINKLR_CLIENT_SECRET');
@@ -59,10 +61,13 @@ export default async function handler(req: any, res: any) {
     const tokenJson = (await tokenResp.json()) as { access_token: string };
     const accessToken = tokenJson.access_token;
 
-    // Fetch posts filtered by account IDs
+    // Fetch posts filtered by account/profile IDs
     const url = new URL(postsEndpoint);
-    url.searchParams.set('accounts', accountsCsv);
+    url.searchParams.set(accountsParamName, accountsCsv);
     url.searchParams.set('limit', limitParam);
+    if (staticNetwork) {
+      url.searchParams.set('network', staticNetwork);
+    }
 
     const postsResp = await fetch(url.toString(), {
       method: 'GET',

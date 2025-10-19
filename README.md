@@ -42,3 +42,11 @@ Notes:
 - Serverless proxy: `api/sprinklr.ts` performs OAuth client-credentials and fetches posts from `SPRINKLR_POSTS_ENDPOINT`, filtered by `accounts` (CSV) and `limit`.
 - Configure env vars as above. You can pass `?accounts=acc_1,acc_2&limit=20` from the UI to restrict to your unit’s accounts.
 - For stricter control, set `SPRINKLR_ALLOWED_ACCOUNT_IDS` and ignore client-supplied accounts.
+
+### Additional Sprinklr Notes
+
+- OAuth token endpoint: if your tenant uses a different OAuth path, set `SPRINKLR_TOKEN_ENDPOINT` (defaults to `${SPRINKLR_BASE_URL}/oauth/token`).
+- Accounts parameter name: if your posts endpoint expects a different param than `accounts` (e.g., `profileIds`), set `SPRINKLR_ACCOUNTS_PARAM=profileIds`.
+- Network hint: if required by your endpoint, set `SPRINKLR_NETWORK` (e.g., `facebook`).
+- Facebook Pages vs Profiles: Sprinklr represents owned presences (including Facebook Pages) as “profiles.” Many endpoints require Sprinklr profile IDs, not raw Facebook Page IDs. Find them in Sprinklr Admin → Profiles or via your tenant’s profiles API.
+- Use API hosts (e.g., `https://api.sprinklr.com/...`) not your tenant UI host (e.g., `https://<tenant>.sprinklr.com/`) for `SPRINKLR_POSTS_ENDPOINT`.
