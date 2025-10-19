@@ -195,6 +195,9 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
   const [sprinklrPosts, setSprinklrPosts] = useState<any[]>([]);
   const [sprinklrLoading, setSprinklrLoading] = useState(false);
   const [sprinklrError, setSprinklrError] = useState<string | null>(null);
+  const [feedPosts, setFeedPosts] = useState<any[]>([]);
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
   const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
   const [newAccountId, setNewAccountId] = useState('');
   const [newAccountLabel, setNewAccountLabel] = useState('');
@@ -368,6 +371,46 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
   useEffect(() => {
     loadSavedPosts();
   }, [teamId]);
+
+  const loadFeedPosts = async () => {
+    try {
+      setFeedLoading(true);
+      setFeedError(null);
+      const accountsCsv = savedAccounts.map(a => a.account_id).filter(Boolean).join(',');
+      if (!accountsCsv) {
+        setFeedError('Add at least one account (URL, platform:username, or channel_id) to monitor.');
+        setFeedLoading(false);
+        return;
+      }
+      const qs = new URLSearchParams();
+      qs.set('accounts', accountsCsv);
+      const res = await fetch(`/api/social-feeds?${qs.toString()}`);
+      if (!res.ok) throw new Error(`Feeds fetch failed: ${res.status}`);
+      const json = await res.json();
+      const fetched = Array.isArray(json.data) ? json.data : [];
+      setFeedPosts(fetched);
+
+      const minimal = fetched
+        .map((p: any) => ({
+          url: p.url || '',
+          network: p.network || null,
+          title: p.title || null,
+          published_at: p.published_at || null,
+        }))
+        .filter((p: any) => p.url);
+
+      if (minimal.length > 0) {
+        await supabase
+          .from('social_posts')
+          .upsert(minimal, { onConflict: 'team_id,url', ignoreDuplicates: true });
+        await loadSavedPosts();
+      }
+    } catch (e: any) {
+      setFeedError(e.message || 'Failed to load feeds');
+    } finally {
+      setFeedLoading(false);
+    }
+  };
 
   const assignCampaign = async (postId: number, campaignId: number | null) => {
     const { error } = await supabase
@@ -548,11 +591,11 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="flex-1">
-            <span className="text-sm font-medium text-navy-900 dark:text-navy-100">Account ID</span>
+            <span className="text-sm font-medium text-navy-900 dark:text-navy-100">Account</span>
             <input
               value={newAccountId}
               onChange={(e) => setNewAccountId(e.target.value)}
-              placeholder="acc_123"
+              placeholder="URL or platform:username or channel_id"
               className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-usace-blue focus:outline-none focus:ring-2 focus:ring-usace-blue dark:border-navy-600 dark:bg-navy-800 dark:text-white"
             />
           </label>
@@ -687,6 +730,46 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
           ))}
           {sprinklrPosts.length === 0 && (
             <div className="text-sm text-gray-600 dark:text-navy-300">No posts loaded.</div>
+          )}
+        </div>
+      </section>
+
+      <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-xl font-semibold text-navy-900 dark:text-white">Latest posts (Feeds)</h3>
+            <p className="text-sm text-gray-600 dark:text-navy-300">No API keys. Use account URLs or platform:username.</p>
+          </div>
+          <button
+            type="button"
+            onClick={loadFeedPosts}
+            disabled={feedLoading}
+            className="rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue"
+          >
+            {feedLoading ? 'Loading…' : 'Load feeds'}
+          </button>
+        </div>
+        {feedError && (
+          <p className="mt-3 text-sm text-red-600 dark:text-red-300">{feedError}</p>
+        )}
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {feedPosts.map((p: any, idx: number) => (
+            <div key={p.url || idx} className="rounded-md border border-gray-200 p-4 dark:border-navy-700">
+              <div className="text-sm text-gray-500 dark:text-navy-300 mb-1">{p.network || 'Feed'}</div>
+              <div className="font-semibold text-navy-900 dark:text-white mb-1">{p.title || '(untitled)'}
+              </div>
+              {p.url && (
+                <a href={p.url} target="_blank" rel="noreferrer" className="text-usace-blue text-sm hover:underline">
+                  View post
+                </a>
+              )}
+              <div className="text-xs text-gray-500 dark:text-navy-300 mt-2">
+                {p.published_at || ''}
+              </div>
+            </div>
+          ))}
+          {feedPosts.length === 0 && (
+            <div className="text-sm text-gray-600 dark:text-navy-300">No feed posts loaded.</div>
           )}
         </div>
       </section>
