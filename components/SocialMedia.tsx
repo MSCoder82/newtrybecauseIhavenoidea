@@ -198,6 +198,8 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
   const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
   const [newAccountId, setNewAccountId] = useState('');
   const [newAccountLabel, setNewAccountLabel] = useState('');
+  const [accountSaveError, setAccountSaveError] = useState<string | null>(null);
+  const [accountSaving, setAccountSaving] = useState(false);
   const [connections, setConnections] = useState<FeedConnection[]>(INITIAL_CONNECTIONS);
   const [formState, setFormState] = useState<SocialMediaFormState>({
     network: SOCIAL_NETWORKS[0],
@@ -277,16 +279,33 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
   }, [teamId]);
 
   const addAccount = async () => {
-    if (!newAccountId.trim()) return;
-    const { data, error } = await supabase
-      .from('social_accounts')
-      .insert([{ account_id: newAccountId.trim(), label: newAccountLabel || null }])
-      .select('id, account_id, label, created_at')
-      .single();
-    if (!error && data) {
-      setSavedAccounts((prev) => [data as SavedAccount, ...prev]);
-      setNewAccountId('');
-      setNewAccountLabel('');
+    setAccountSaveError(null);
+    const accountId = newAccountId.trim();
+    if (!accountId) {
+      setAccountSaveError('Enter a valid account ID.');
+      return;
+    }
+
+    try {
+      setAccountSaving(true);
+      const { data, error } = await supabase
+        .from('social_accounts')
+        .insert([{ account_id: accountId, label: newAccountLabel || null }])
+        .select('id, account_id, label, created_at')
+        .single();
+      if (error) {
+        setAccountSaveError(error.message || 'Failed to save account. Check Supabase configuration.');
+        return;
+      }
+      if (data) {
+        setSavedAccounts((prev) => [data as SavedAccount, ...prev]);
+        setNewAccountId('');
+        setNewAccountLabel('');
+      }
+    } catch (e: any) {
+      setAccountSaveError(e?.message || 'Unexpected error while saving account.');
+    } finally {
+      setAccountSaving(false);
     }
   };
 
@@ -549,11 +568,15 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
           <button
             type="button"
             onClick={addAccount}
+            disabled={accountSaving}
             className="w-full sm:w-auto rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue focus:ring-offset-2 dark:focus:ring-offset-navy-900"
           >
-            Add account
+            {accountSaving ? 'Saving…' : 'Add account'}
           </button>
         </div>
+        {accountSaveError && (
+          <p className="mt-2 text-sm text-red-600 dark:text-red-300">{accountSaveError}</p>
+        )}
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {savedAccounts.map((a) => (
             <div key={a.id} className="flex items-center justify-between rounded-md border border-gray-200 p-3 dark:border-navy-700">
