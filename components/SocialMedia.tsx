@@ -175,10 +175,14 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
     const pageId = settings?.facebook?.pageId?.trim();
     const token = settings?.facebook?.accessToken?.trim();
     if (!pageId || !token) throw new Error('Enter Facebook Page ID and Access Token');
-    const res = await fetch(`/api/facebook?pageId=${encodeURIComponent(pageId)}&accessToken=${encodeURIComponent(token)}&limit=1`);
+    const res = await fetch(`/api/social-aggregate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 1, platforms: 'facebook', credentials: { facebook: { pageId, accessToken: token } } }),
+    });
     if (!res.ok) throw new Error(`Facebook test failed: ${res.status}`);
     const j = await res.json();
-    const count = Array.isArray(j.data) ? j.data.length : 0;
+    const count = Array.isArray(j.data) ? j.data.filter((i: any) => i.network === 'Facebook').length : 0;
     showToast(`Facebook OK (${count} item)`, 'success');
   };
 
@@ -186,10 +190,14 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
     const username = settings?.twitter?.username?.trim();
     const bearer = settings?.twitter?.bearer?.trim();
     if (!username || !bearer) throw new Error('Enter Twitter username and Bearer token');
-    const res = await fetch(`/api/twitter?username=${encodeURIComponent(username)}&bearer=${encodeURIComponent(bearer)}&limit=1`);
+    const res = await fetch(`/api/social-aggregate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 1, platforms: 'twitter', credentials: { twitter: { username, bearer } } }),
+    });
     if (!res.ok) throw new Error(`Twitter test failed: ${res.status}`);
     const j = await res.json();
-    const count = Array.isArray(j.data) ? j.data.length : 0;
+    const count = Array.isArray(j.data) ? j.data.filter((i: any) => i.network === 'Twitter').length : 0;
     showToast(`Twitter OK (${count} item)`, 'success');
   };
 
@@ -197,10 +205,14 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
     const userId = settings?.instagram?.userId?.trim();
     const token = settings?.instagram?.accessToken?.trim();
     if (!userId || !token) throw new Error('Enter Instagram User ID and Access Token');
-    const res = await fetch(`/api/instagram?userId=${encodeURIComponent(userId)}&accessToken=${encodeURIComponent(token)}&limit=1`);
+    const res = await fetch(`/api/social-aggregate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 1, platforms: 'instagram', credentials: { instagram: { userId, accessToken: token } } }),
+    });
     if (!res.ok) throw new Error(`Instagram test failed: ${res.status}`);
     const j = await res.json();
-    const count = Array.isArray(j.data) ? j.data.length : 0;
+    const count = Array.isArray(j.data) ? j.data.filter((i: any) => i.network === 'Instagram').length : 0;
     showToast(`Instagram OK (${count} item)`, 'success');
   };
 
@@ -208,10 +220,14 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
     const orgId = settings?.linkedin?.orgId?.trim();
     const token = settings?.linkedin?.accessToken?.trim();
     if (!orgId || !token) throw new Error('Enter LinkedIn Organization ID and Access Token');
-    const res = await fetch(`/api/linkedin?orgId=${encodeURIComponent(orgId)}&accessToken=${encodeURIComponent(token)}&limit=1`);
+    const res = await fetch(`/api/social-aggregate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 1, platforms: 'linkedin', credentials: { linkedin: { orgId, accessToken: token } } }),
+    });
     if (!res.ok) throw new Error(`LinkedIn test failed: ${res.status}`);
     const j = await res.json();
-    const count = Array.isArray(j.data) ? j.data.length : 0;
+    const count = Array.isArray(j.data) ? j.data.filter((i: any) => i.network === 'LinkedIn').length : 0;
     showToast(`LinkedIn OK (${count} item)`, 'success');
   };
 
@@ -219,20 +235,28 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
     const channelId = settings?.youtube?.channelId?.trim();
     const apiKey = settings?.youtube?.apiKey?.trim();
     if (!channelId || !apiKey) throw new Error('Enter YouTube Channel ID and API Key');
-    const res = await fetch(`/api/youtube?channelId=${encodeURIComponent(channelId)}&apiKey=${encodeURIComponent(apiKey)}&limit=1`);
+    const res = await fetch(`/api/social-aggregate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 1, platforms: 'youtube', credentials: { youtube: { channelId, apiKey } } }),
+    });
     if (!res.ok) throw new Error(`YouTube test failed: ${res.status}`);
     const j = await res.json();
-    const count = Array.isArray(j.data) ? j.data.length : 0;
+    const count = Array.isArray(j.data) ? j.data.filter((i: any) => i.network === 'YouTube').length : 0;
     showToast(`YouTube OK (${count} item)`, 'success');
   };
 
   const testCustom = async () => {
     const url = settings?.custom?.url?.trim();
     if (!url) throw new Error('Enter Custom Feed URL');
-    const res = await fetch(`/api/custom?url=${encodeURIComponent(url)}&limit=1`);
+    const res = await fetch(`/api/social-aggregate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 1, platforms: 'custom', credentials: { custom: { url } } }),
+    });
     if (!res.ok) throw new Error(`Custom feed test failed: ${res.status}`);
     const j = await res.json();
-    const count = Array.isArray(j.data) ? j.data.length : 0;
+    const count = Array.isArray(j.data) ? j.data.filter((i: any) => i.network === 'Other').length : 0;
     showToast(`Custom feed OK (${count} item)`, 'success');
   };
 
