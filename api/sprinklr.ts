@@ -148,13 +148,26 @@ export default async function handler(req: any, res: any) {
     if (!clientId || !clientSecret) {
       throw new Error('Missing SPRINKLR_CLIENT_ID or SPRINKLR_CLIENT_SECRET environment variables.')
     }
-    if (!baseEnv) {
-      throw new Error('Missing Sprinklr base URL. Set SPRINKLR_ENVIRONMENT (e.g., https://yourtenant.sprinklr.com).')
-    }
-
     const baseUrl = baseEnv.replace(/\/+$/, '')
-    const tokenUrl = process.env.SPRINKLR_TOKEN_URL || `${baseUrl}/oauth/token`
-    const bulkFetchUrl = process.env.SPRINKLR_BULK_FETCH_URL || `${baseUrl}/api/v2/message/bulk-fetch`
+    const tokenUrl =
+      process.env.SPRINKLR_TOKEN_URL ||
+      process.env.SPRINKLR_TOKEN_ENDPOINT ||
+      (baseUrl ? `${baseUrl}/oauth/token` : '')
+    const bulkFetchUrl =
+      process.env.SPRINKLR_BULK_FETCH_URL ||
+      process.env.SPRINKLR_POSTS_URL ||
+      process.env.SPRINKLR_POSTS_ENDPOINT ||
+      (baseUrl ? `${baseUrl}/api/v2/message/bulk-fetch` : '')
+    if (!tokenUrl) {
+      throw new Error(
+        'Missing Sprinklr token URL. Provide SPRINKLR_TOKEN_URL (or SPRINKLR_TOKEN_ENDPOINT) or set SPRINKLR_ENVIRONMENT.'
+      )
+    }
+    if (!bulkFetchUrl) {
+      throw new Error(
+        'Missing Sprinklr posts endpoint. Set SPRINKLR_BULK_FETCH_URL (preferred) or SPRINKLR_POSTS_ENDPOINT, or provide SPRINKLR_ENVIRONMENT so the default bulk-fetch path can be constructed.'
+      )
+    }
 
     const allowedCsv =
       process.env.SPRINKLR_ALLOWED_PROFILE_IDS ||
@@ -162,6 +175,12 @@ export default async function handler(req: any, res: any) {
       process.env.SPRINKLR_DEFAULT_PROFILE_IDS ||
       ''
     const allowedProfiles = asArray(allowedCsv)
+
+    const accountParam =
+      process.env.SPRINKLR_ACCOUNTS_PARAM ||
+      process.env.SPRINKLR_PROFILE_PARAM ||
+      process.env.SPRINKLR_PROFILE_IDS_FIELD ||
+      'profileIds'
 
     const effectiveProfiles =
       allowedProfiles.length > 0
@@ -180,7 +199,11 @@ export default async function handler(req: any, res: any) {
     const filters: Record<string, any> =
       bodyFilters && typeof bodyFilters === 'object' ? { ...bodyFilters } : {}
 
-    filters.profileIds = effectiveProfiles
+    filters[accountParam] = effectiveProfiles
+    const network = process.env.SPRINKLR_NETWORK
+    if (network && !filters.network) {
+      filters.network = network
+    }
 
     const sortBy = typeof bodySortBy === 'string' && bodySortBy.length > 0 ? bodySortBy : 'createdTime'
     const sortOrder = bodySortOrder === 'ASC' || bodySortOrder === 'DESC' ? bodySortOrder : 'DESC'
