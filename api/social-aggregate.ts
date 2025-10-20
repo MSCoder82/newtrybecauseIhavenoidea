@@ -13,14 +13,127 @@ type Credentials = {
   youtube?: { channelId?: string; apiKey?: string }
   custom?: { url?: string }
 }
+// Helpers that call platform APIs directly to avoid internal HTTP calls
+async function fetchFacebook(pageId: string, accessToken: string, limit: number): Promise<FeedItem[]> {
+  const fields = ['message', 'created_time', 'permalink_url', 'full_picture'].join(',')
+  const url = new URL(`https://graph.facebook.com/v19.0/${encodeURIComponent(pageId)}/posts`)
+  url.searchParams.set('fields', fields)
+  url.searchParams.set('limit', String(limit))
+  url.searchParams.set('access_token', accessToken)
+  const resp = await fetch(url.toString())
+  if (!resp.ok) throw new Error(`Facebook ${resp.status}: ${await resp.text()}`)
+  const data = await resp.json()
+  const items = (data.data || []) as Array<any>
+  return items.slice(0, limit).map((p) => ({
+    network: 'Facebook',
+    title: (p.message as string) || null,
+    url: (p.permalink_url as string) || null,
+    published_at: (p.created_time as string) || null,
+  }))
+}
 
-function baseUrlFromReq(req: any): string {
-  const host = (req.headers['x-forwarded-host'] as string) || (req.headers.host as string) || 'localhost'
-  let proto = (req.headers['x-forwarded-proto'] as string) || ''
-  if (!proto) {
-    proto = /localhost|127\.0\.0\.1|:\d+$/.test(host) ? 'http' : 'https'
-  }
-  return `${proto}://${host}`
+async function fetchTwitter(username: string, bearer: string, limit: number): Promise<FeedItem[]> {
+  const userResp = await fetch(`https://api.twitter.com/2/users/by/username/${encodeURIComponent(username)}?user.fields=profile_image_url,name,username`, {
+    headers: { Authorization: `Bearer ${bearer}` },
+  })
+  if (!userResp.ok) throw new Error(`Twitter user ${userResp.status}: ${await userResp.text()}`)
+  const user = (await userResp.json()).data
+  if (!user?.id) throw new Error('Twitter user not found')
+  const tweetsResp = await fetch(`https://api.twitter.com/2/users/${user.id}/tweets?max_results=${Math.max(5, Math.min(100, limit))}&tweet.fields=created_at`, {
+    headers: { Authorization: `Bearer ${bearer}` },
+  })
+  if (!tweetsResp.ok) throw new Error(`Twitter tweets ${tweetsResp.status}: ${await tweetsResp.text()}`)
+  const tweets = (await tweetsResp.json()).data || []
+  return tweets.slice(0, limit).map((t: any) => ({
+    network: 'Twitter',
+    title: (t.text as string) || null,
+    url: `https://twitter.com/${user.username}/status/${t.id}`,
+    published_at: (t.created_at as string) || null,
+  }))
+}
+
+async function fetchInstagram(userId: string, accessToken: string, limit: number): Promise<FeedItem[]> {
+  const fields = ['id', 'caption', 'permalink', 'timestamp'].join(',')
+  const url = new URL(`https://graph.facebook.com/v19.0/${encodeURIComponent(userId)}/media`)
+  url.searchParams.set('fields', fields)
+  url.searchParams.set('limit', String(limit))
+  url.searchParams.set('access_token', accessToken)
+  const resp = await fetch(url.toString())
+  if (!resp.ok) throw new Error(`Instagram ${resp.status}: ${await resp.text()}`)
+  const data = await resp.json()
+  const items = (data.data || []) as Array<any>
+  return items.slice(0, limit).map((m) => ({
+    network: 'Instagram',
+    title: (m.caption as string) || null,
+    url: (m.permalink as string) || null,
+    published_at: (m.timestamp as string) || null,
+  }))
+}
+
+async function fetchLinkedIn(orgId: string, accessToken: string, limit: number): Promise<FeedItem[]> {
+  const owners = encodeURIComponent(`urn:li:organization:${orgId}`)
+  const url = `https://api.linkedin.com/v2/shares?q=owners&owners=${owners}&sharesPerOwner=${limit}&sortBy=LAST_MODIFIED&count=${limit}`
+  const resp = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'X-Restli-Protocol-Version': '2.0.0',
+    },
+  })
+  if (!resp.ok) throw new Error(`LinkedIn ${resp.status}: ${await resp.text()}`)
+  const data = await resp.json()
+  const elements = (data.elements || []) as Array<any>
+  return elements.slice(0, limit).map((e) => {
+    const createdMs = e.created?.time || e.lastModified?.time
+    const text = e.text?.text || e.specificContent?.['com.linkedin.ugc.ShareContent']?.shareCommentary?.text || null
+    return {
+      network: 'LinkedIn',
+      title: text || null,
+      url: null,
+      published_at: createdMs ? new Date(createdMs).toISOString() : null,
+    }
+  })
+}
+
+async function fetchYouTube(channelId: string, apiKey: string, limit: number): Promise[FeedItem[]] {
+  const params = new URLSearchParams({
+    part: 'snippet',
+    channelId,
+    order: 'date',
+    maxResults: String(Math.max(1, Math.min(50, limit))),
+    type: 'video',
+    key: apiKey,
+  })
+  const url = `https://www.googleapis.com/youtube/v3/search?${params.toString()}`
+  const resp = await fetch(url)
+  if (!resp.ok) throw new Error(`YouTube ${resp.status}: ${await resp.text()}`)
+  const data = await resp.json()
+  const items = (data.items || []) as Array<any>
+  return items.slice(0, limit).map((it) => {
+    const vid = it.id?.videoId || ''
+    const sn = it.snippet
+    return {
+      network: 'YouTube',
+      title: (sn?.title as string) || null,
+      url: vid ? `https://www.youtube.com/watch?v=${vid}` : null,
+      published_at: (sn?.publishedAt as string) || null,
+    }
+  })
+}
+
+async function fetchCustom(urlStr: string, limit: number): Promise<FeedItem[]> {
+  const resp = await fetch(urlStr)
+  if (!resp.ok) throw new Error(`Custom ${resp.status}: ${await resp.text()}`)
+  const json = await resp.json()
+  let items: any[] = []
+  if (Array.isArray(json)) items = json
+  else if (Array.isArray(json?.items)) items = json.items
+  else if (Array.isArray(json?.data)) items = json.data
+  return items.slice(0, limit).map((it) => ({
+    network: 'Other',
+    title: (it.title ?? it.text ?? it.summary ?? null) as string | null,
+    url: (it.url ?? it.link ?? null) as string | null,
+    published_at: (it.date_published ?? it.timestamp ?? it.date ?? it.published_at ?? null) as string | null,
+  }))
 }
 
 function cap(name: string) {
@@ -39,7 +152,6 @@ export default async function handler(req: any, res: any) {
     const platforms = platformsCsv.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
     const creds: Credentials | undefined = req.body?.credentials
 
-    const base = baseUrlFromReq(req)
     const tasks: Array<Promise<{ platform: string; items: FeedItem[] }>> = []
     const unsupported: string[] = []
     const errors: Array<{ platform: string; error: string }> = []
@@ -76,74 +188,74 @@ export default async function handler(req: any, res: any) {
         case 'facebook': {
           const pageId = (req.query.facebookPageId as string) || creds?.facebook?.pageId || process.env.FACEBOOK_PAGE_ID
           const token = (req.query.facebookAccessToken as string) || creds?.facebook?.accessToken || process.env.FACEBOOK_ACCESS_TOKEN
-          const u = pageId && token ? `${base}/api/facebook?limit=${l}&pageId=${encodeURIComponent(pageId)}&accessToken=${encodeURIComponent(token)}` : null
-          addTask('facebook', u, (raw) => ({
-            network: 'Facebook',
-            title: (raw.text as string) || null,
-            url: (raw.url as string) || null,
-            published_at: (raw.timestamp as string) || null,
-          }))
+          if (!pageId || !token) { unsupported.push('facebook'); break }
+          tasks.push((async () => {
+            try {
+              const items = await fetchFacebook(pageId, token, Number(l))
+              return { platform: 'facebook', items }
+            } catch (e: any) { errors.push({ platform: 'facebook', error: e?.message || 'error' }); return { platform: 'facebook', items: [] } }
+          })())
           break
         }
         case 'twitter':
         case 'x': {
           const username = (req.query.twitterUsername as string) || creds?.twitter?.username || process.env.TWITTER_USERNAME
           const bearer = (req.query.twitterBearer as string) || creds?.twitter?.bearer || process.env.TWITTER_BEARER_TOKEN
-          const u = username && bearer ? `${base}/api/twitter?limit=${l}&username=${encodeURIComponent(username)}&bearer=${encodeURIComponent(bearer)}` : null
-          addTask('twitter', u, (raw) => ({
-            network: 'Twitter',
-            title: (raw.text as string) || null,
-            url: (raw.url as string) || null,
-            published_at: (raw.timestamp as string) || null,
-          }))
+          if (!username || !bearer) { unsupported.push('twitter'); break }
+          tasks.push((async () => {
+            try {
+              const items = await fetchTwitter(username, bearer, Number(l))
+              return { platform: 'twitter', items }
+            } catch (e: any) { errors.push({ platform: 'twitter', error: e?.message || 'error' }); return { platform: 'twitter', items: [] } }
+          })())
           break
         }
         case 'instagram': {
           const userId = (req.query.instagramUserId as string) || creds?.instagram?.userId || process.env.INSTAGRAM_USER_ID
           const token = (req.query.instagramAccessToken as string) || creds?.instagram?.accessToken || process.env.INSTAGRAM_ACCESS_TOKEN
-          const u = userId && token ? `${base}/api/instagram?limit=${l}&userId=${encodeURIComponent(userId)}&accessToken=${encodeURIComponent(token)}` : null
-          addTask('instagram', u, (raw) => ({
-            network: 'Instagram',
-            title: (raw.text as string) || null,
-            url: (raw.url as string) || null,
-            published_at: (raw.timestamp as string) || null,
-          }))
+          if (!userId || !token) { unsupported.push('instagram'); break }
+          tasks.push((async () => {
+            try {
+              const items = await fetchInstagram(userId, token, Number(l))
+              return { platform: 'instagram', items }
+            } catch (e: any) { errors.push({ platform: 'instagram', error: e?.message || 'error' }); return { platform: 'instagram', items: [] } }
+          })())
           break
         }
         case 'linkedin': {
           const orgId = (req.query.linkedinOrgId as string) || creds?.linkedin?.orgId || process.env.LINKEDIN_ORG_ID
           const token = (req.query.linkedinAccessToken as string) || creds?.linkedin?.accessToken || process.env.LINKEDIN_ACCESS_TOKEN
-          const u = orgId && token ? `${base}/api/linkedin?limit=${l}&orgId=${encodeURIComponent(orgId)}&accessToken=${encodeURIComponent(token)}` : null
-          addTask('linkedin', u, (raw) => ({
-            network: 'LinkedIn',
-            title: (raw.text as string) || null,
-            url: (raw.url as string) || null,
-            published_at: (raw.timestamp as string) || null,
-          }))
+          if (!orgId || !token) { unsupported.push('linkedin'); break }
+          tasks.push((async () => {
+            try {
+              const items = await fetchLinkedIn(orgId, token, Number(l))
+              return { platform: 'linkedin', items }
+            } catch (e: any) { errors.push({ platform: 'linkedin', error: e?.message || 'error' }); return { platform: 'linkedin', items: [] } }
+          })())
           break
         }
         case 'youtube': {
           const channelId = (req.query.youtubeChannelId as string) || creds?.youtube?.channelId || process.env.YOUTUBE_CHANNEL_ID
           const apiKey = (req.query.youtubeApiKey as string) || creds?.youtube?.apiKey || process.env.YOUTUBE_API_KEY
-          const u = channelId && apiKey ? `${base}/api/youtube?limit=${l}&channelId=${encodeURIComponent(channelId)}&apiKey=${encodeURIComponent(apiKey)}` : null
-          addTask('youtube', u, (raw) => ({
-            network: 'YouTube',
-            title: (raw.text as string) || null,
-            url: (raw.url as string) || null,
-            published_at: (raw.timestamp as string) || null,
-          }))
+          if (!channelId || !apiKey) { unsupported.push('youtube'); break }
+          tasks.push((async () => {
+            try {
+              const items = await fetchYouTube(channelId, apiKey, Number(l))
+              return { platform: 'youtube', items }
+            } catch (e: any) { errors.push({ platform: 'youtube', error: e?.message || 'error' }); return { platform: 'youtube', items: [] } }
+          })())
           break
         }
         case 'other':
         case 'custom': {
           const feedUrl = (req.query.customUrl as string) || creds?.custom?.url || process.env.CUSTOM_JSON_FEED_URL
-          const u = feedUrl ? `${base}/api/custom?limit=${l}&url=${encodeURIComponent(feedUrl)}` : null
-          addTask('custom', u, (raw) => ({
-            network: 'Other',
-            title: (raw.text as string) || null,
-            url: (raw.url as string) || null,
-            published_at: (raw.timestamp as string) || null,
-          }))
+          if (!feedUrl) { unsupported.push('custom'); break }
+          tasks.push((async () => {
+            try {
+              const items = await fetchCustom(feedUrl, Number(l))
+              return { platform: 'custom', items }
+            } catch (e: any) { errors.push({ platform: 'custom', error: e?.message || 'error' }); return { platform: 'custom', items: [] } }
+          })())
           break
         }
         default:
