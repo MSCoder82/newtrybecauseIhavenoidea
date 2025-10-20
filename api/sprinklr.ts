@@ -1,51 +1,196 @@
+type SprinklrFetchBody = {
+  filters?: Record<string, any>
+  limit?: number
+  sortBy?: string
+  sortOrder?: 'ASC' | 'DESC'
+}
 
-type PostsRequest = {
-  accountIds?: string[];
-  limit?: number;
-};
+type SprinklrRequest = SprinklrFetchBody & {
+  profileIds?: string[] | string
+  accountIds?: string[] | string
+  profileId?: string
+  accountId?: string
+  includeRaw?: boolean | string
+}
+
+type SprinklrFeedItem = {
+  id: string
+  network: string | null
+  title: string | null
+  url: string | null
+  published_at: string | null
+  raw?: unknown
+}
+
+const DEFAULT_LIMIT = 5
+
+const asArray = (value: unknown): string[] => {
+  if (!value) return []
+  if (Array.isArray(value)) return value.map((v) => String(v)).filter(Boolean)
+  if (typeof value === 'string') return value.split(',').map((v) => v.trim()).filter(Boolean)
+  return [String(value)].filter(Boolean)
+}
+
+const toIsoString = (input: unknown): string | null => {
+  if (!input) return null
+  if (typeof input === 'string') {
+    const trimmed = input.trim()
+    if (!trimmed) return null
+    const date = new Date(trimmed)
+    return Number.isNaN(date.getTime()) ? null : date.toISOString()
+  }
+  if (typeof input === 'number') {
+    const ms = input < 10_000_000_000 ? input * 1000 : input
+    const date = new Date(ms)
+    return Number.isNaN(date.getTime()) ? null : date.toISOString()
+  }
+  return null
+}
+
+const extractMessages = (payload: any): any[] => {
+  if (!payload) return []
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.data?.messages)) return payload.data.messages
+  if (Array.isArray(payload?.data?.items)) return payload.data.items
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.messages)) return payload.messages
+  if (Array.isArray(payload?.items)) return payload.items
+  return []
+}
+
+const normalizePost = (entry: any, idx: number, includeRaw: boolean): SprinklrFeedItem => {
+  const idSource = entry?.id ?? entry?.messageId ?? entry?.postId ?? entry?.activityId ?? `sprinklr-${idx}`
+  const title =
+    entry?.subject ??
+    entry?.message ??
+    entry?.text ??
+    entry?.content ??
+    entry?.headline ??
+    entry?.caption ??
+    null
+
+  const url = entry?.permalink ?? entry?.permaLink ?? entry?.postUrl ?? entry?.url ?? null
+  const published =
+    toIsoString(entry?.createdTime) ??
+    toIsoString(entry?.created_at) ??
+    toIsoString(entry?.publishedAt) ??
+    toIsoString(entry?.publishTime) ??
+    toIsoString(entry?.timestamp) ??
+    null
+
+  const normalized: SprinklrFeedItem = {
+    id: String(idSource),
+    network: entry?.channel ?? entry?.channelType ?? entry?.network ?? entry?.source ?? 'Sprinklr',
+    title: typeof title === 'string' && title.trim().length > 0 ? title : null,
+    url: typeof url === 'string' && url.trim().length > 0 ? url : null,
+    published_at: published,
+  }
+
+  if (includeRaw) {
+    normalized.raw = entry
+  }
+
+  return normalized
+}
+
+const sanitizeLimit = (value: unknown): number => {
+  const parsed =
+    typeof value === 'string'
+      ? parseInt(value, 10)
+      : typeof value === 'number'
+        ? value
+        : DEFAULT_LIMIT
+  if (Number.isNaN(parsed) || parsed <= 0) return DEFAULT_LIMIT
+  return Math.min(Math.max(parsed, 1), 50)
+}
+
+const unique = (values: string[]): string[] => Array.from(new Set(values.filter(Boolean)))
 
 export default async function handler(req: any, res: any) {
   try {
     if (req.method !== 'GET' && req.method !== 'POST') {
-      res.status(405).json({ success: false, error: 'Method not allowed' });
-      return;
+      res.status(405).json({ success: false, error: 'Method not allowed' })
+      return
     }
 
-    const clientId = process.env.SPRINKLR_CLIENT_ID;
-    const clientSecret = process.env.SPRINKLR_CLIENT_SECRET;
-    const baseUrl = process.env.SPRINKLR_BASE_URL || 'https://api.sprinklr.com';
-    const tokenEndpoint = process.env.SPRINKLR_TOKEN_ENDPOINT || `${baseUrl}/oauth/token`;
-    const postsEndpoint = process.env.SPRINKLR_POSTS_ENDPOINT; // e.g., `${baseUrl}/v1/posts` (set per your tenant/API package)
-    const defaultAccountsCsv = process.env.SPRINKLR_ALLOWED_ACCOUNT_IDS || '';
-    const accountsParamName = process.env.SPRINKLR_ACCOUNTS_PARAM || 'accounts';
-    const staticNetwork = process.env.SPRINKLR_NETWORK || '';
+    const {
+      profileIds: bodyProfileIds,
+      profileId: bodyProfileId,
+      accountIds: bodyAccountIds,
+      accountId: bodyAccountId,
+      limit: bodyLimit,
+      filters: bodyFilters,
+      sortBy: bodySortBy,
+      sortOrder: bodySortOrder,
+      includeRaw: bodyIncludeRaw,
+    } = (req.method === 'POST' ? req.body ?? {} : {}) as SprinklrRequest
+
+    const queryProfileIds = asArray(req.query?.profileIds || req.query?.profileId)
+    const queryAccountIds = asArray(req.query?.accountIds || req.query?.accountId)
+
+    const requestedProfiles = unique([
+      ...queryProfileIds,
+      ...asArray(bodyProfileIds),
+      ...asArray(bodyProfileId),
+      ...queryAccountIds,
+      ...asArray(bodyAccountIds),
+      ...asArray(bodyAccountId),
+    ])
+
+    const clientId = process.env.SPRINKLR_CLIENT_ID
+    const clientSecret = process.env.SPRINKLR_CLIENT_SECRET
+    const baseEnv =
+      process.env.SPRINKLR_ENVIRONMENT ||
+      process.env.SPRINKLR_BASE_URL ||
+      process.env.SPRINKLR_TENANT_URL ||
+      ''
 
     if (!clientId || !clientSecret) {
-      throw new Error('Missing SPRINKLR_CLIENT_ID/SPRINKLR_CLIENT_SECRET');
+      throw new Error('Missing SPRINKLR_CLIENT_ID or SPRINKLR_CLIENT_SECRET environment variables.')
     }
-    if (!postsEndpoint) {
-      throw new Error('SPRINKLR_POSTS_ENDPOINT is not configured');
-    }
-
-    const payload: PostsRequest = req.method === 'POST' ? (req.body ?? {}) : {};
-    const limitParam = (req.query.limit as string) || String(payload.limit || 20);
-    const inputAccounts = (req.query.accounts as string) || '';
-    const provided = (inputAccounts || (payload.accountIds?.join(',') ?? '')).split(',').map(s => s.trim()).filter(Boolean);
-    const allowed = defaultAccountsCsv
-      ? defaultAccountsCsv.split(',').map(s => s.trim()).filter(Boolean)
-      : [];
-    const effectiveAccounts = allowed.length > 0
-      ? provided.filter(a => allowed.includes(a))
-      : provided.length > 0
-        ? provided
-        : allowed;
-    const accountsCsv = effectiveAccounts.join(',');
-    if (!accountsCsv) {
-      throw new Error('No account IDs provided. Pass `accounts` query, `accountIds` in body, or set SPRINKLR_ALLOWED_ACCOUNT_IDS.');
+    if (!baseEnv) {
+      throw new Error('Missing Sprinklr base URL. Set SPRINKLR_ENVIRONMENT (e.g., https://yourtenant.sprinklr.com).')
     }
 
-    // Get OAuth token (Client Credentials)
-    const tokenResp = await fetch(tokenEndpoint, {
+    const baseUrl = baseEnv.replace(/\/+$/, '')
+    const tokenUrl = process.env.SPRINKLR_TOKEN_URL || `${baseUrl}/oauth/token`
+    const bulkFetchUrl = process.env.SPRINKLR_BULK_FETCH_URL || `${baseUrl}/api/v2/message/bulk-fetch`
+
+    const allowedCsv =
+      process.env.SPRINKLR_ALLOWED_PROFILE_IDS ||
+      process.env.SPRINKLR_ALLOWED_ACCOUNT_IDS ||
+      process.env.SPRINKLR_DEFAULT_PROFILE_IDS ||
+      ''
+    const allowedProfiles = asArray(allowedCsv)
+
+    const effectiveProfiles =
+      allowedProfiles.length > 0
+        ? requestedProfiles.filter((p) => allowedProfiles.includes(p))
+        : requestedProfiles.length > 0
+          ? requestedProfiles
+          : allowedProfiles
+
+    if (effectiveProfiles.length === 0) {
+      throw new Error(
+        'No Sprinklr profile IDs provided. Pass `profileIds`/`accountIds` in the request body, query parameters, or configure SPRINKLR_ALLOWED_PROFILE_IDS.'
+      )
+    }
+
+    const limit = sanitizeLimit(req.query?.limit ?? bodyLimit)
+    const filters: Record<string, any> =
+      bodyFilters && typeof bodyFilters === 'object' ? { ...bodyFilters } : {}
+
+    filters.profileIds = effectiveProfiles
+
+    const sortBy = typeof bodySortBy === 'string' && bodySortBy.length > 0 ? bodySortBy : 'createdTime'
+    const sortOrder = bodySortOrder === 'ASC' || bodySortOrder === 'DESC' ? bodySortOrder : 'DESC'
+    const includeRaw =
+      bodyIncludeRaw === true ||
+      bodyIncludeRaw === 'true' ||
+      req.query?.includeRaw === 'true' ||
+      req.query?.includeRaw === true
+
+    const tokenResp = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -53,39 +198,66 @@ export default async function handler(req: any, res: any) {
         client_id: clientId,
         client_secret: clientSecret,
       }),
-    });
+    })
     if (!tokenResp.ok) {
-      const errTxt = await tokenResp.text();
-      throw new Error(`Token request failed: ${tokenResp.status} ${errTxt}`);
-    }
-    const tokenJson = (await tokenResp.json()) as { access_token: string };
-    const accessToken = tokenJson.access_token;
-
-    // Fetch posts filtered by account/profile IDs
-    const url = new URL(postsEndpoint);
-    url.searchParams.set(accountsParamName, accountsCsv);
-    url.searchParams.set('limit', limitParam);
-    if (staticNetwork) {
-      url.searchParams.set('network', staticNetwork);
+      const errTxt = await tokenResp.text()
+      throw new Error(`Sprinklr token request failed: ${tokenResp.status} ${errTxt}`)
     }
 
-    const postsResp = await fetch(url.toString(), {
-      method: 'GET',
+    const tokenJson = (await tokenResp.json()) as { access_token?: string }
+    if (!tokenJson?.access_token) {
+      throw new Error('Sprinklr token response missing `access_token`')
+    }
+
+    const fetchBody: SprinklrFetchBody = {
+      filters,
+      limit,
+      sortBy,
+      sortOrder,
+    }
+
+    const postsResp = await fetch(bulkFetchUrl, {
+      method: 'POST',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${tokenJson.access_token}`,
         'Content-Type': 'application/json',
       },
-    });
+      body: JSON.stringify(fetchBody),
+    })
+
     if (!postsResp.ok) {
-      const errTxt = await postsResp.text();
-      throw new Error(`Posts request failed: ${postsResp.status} ${errTxt}`);
+      const errTxt = await postsResp.text()
+      throw new Error(`Sprinklr posts request failed: ${postsResp.status} ${errTxt}`)
     }
 
-    const raw = await postsResp.json();
-    // Return raw for now; UI can map fields per tenant schema
-    res.status(200).json({ success: true, data: raw });
+    const postsJson = await postsResp.json()
+    const messages = extractMessages(postsJson)
+    const posts = messages.slice(0, limit).map((entry, idx) => normalizePost(entry, idx, includeRaw))
+
+    const responseBody: {
+      success: true
+      posts: SprinklrFeedItem[]
+      meta: Record<string, any>
+      raw?: unknown
+    } = {
+      success: true,
+      posts,
+      meta: {
+        limit,
+        count: posts.length,
+        profileIds: effectiveProfiles,
+        sortBy,
+        sortOrder,
+      },
+    }
+
+    if (includeRaw) {
+      responseBody.raw = postsJson
+    }
+
+    res.status(200).json(responseBody)
   } catch (err: any) {
-    console.error('Sprinklr API error:', err);
-    res.status(500).json({ success: false, error: err.message || 'Unknown error' });
+    console.error('Sprinklr API error:', err)
+    res.status(500).json({ success: false, error: err?.message || 'Unknown error' })
   }
 }
