@@ -15,8 +15,11 @@ type Credentials = {
 }
 
 function baseUrlFromReq(req: any): string {
-  const proto = (req.headers['x-forwarded-proto'] as string) || 'https'
-  const host = (req.headers['x-forwarded-host'] as string) || (req.headers.host as string)
+  const host = (req.headers['x-forwarded-host'] as string) || (req.headers.host as string) || 'localhost'
+  let proto = (req.headers['x-forwarded-proto'] as string) || ''
+  if (!proto) {
+    proto = /localhost|127\.0\.0\.1|:\d+$/.test(host) ? 'http' : 'https'
+  }
   return `${proto}://${host}`
 }
 
@@ -39,6 +42,7 @@ export default async function handler(req: any, res: any) {
     const base = baseUrlFromReq(req)
     const tasks: Array<Promise<{ platform: string; items: FeedItem[] }>> = []
     const unsupported: string[] = []
+    const errors: Array<{ platform: string; error: string }> = []
 
     const addTask = (platform: string, url: string | null, mapItem: (raw: any) => FeedItem) => {
       if (!url) {
@@ -47,14 +51,20 @@ export default async function handler(req: any, res: any) {
       }
       tasks.push(
         (async () => {
-          const r = await fetch(url)
-          if (!r.ok) {
-            throw new Error(`${platform} endpoint error ${r.status}`)
+          try {
+            const r = await fetch(url)
+            if (!r.ok) {
+              const txt = await r.text().catch(() => '')
+              throw new Error(`${platform} endpoint error ${r.status} ${txt}`)
+            }
+            const j = await r.json()
+            const data = Array.isArray(j.data) ? j.data : []
+            const items: FeedItem[] = data.slice(0, 5).map(mapItem)
+            return { platform, items }
+          } catch (e: any) {
+            errors.push({ platform, error: e?.message || 'Unknown error' })
+            return { platform, items: [] }
           }
-          const j = await r.json()
-          const data = Array.isArray(j.data) ? j.data : []
-          const items: FeedItem[] = data.slice(0, 5).map(mapItem)
-          return { platform, items }
         })(),
       )
     }
@@ -154,7 +164,7 @@ export default async function handler(req: any, res: any) {
     })
 
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=86400')
-    res.status(200).json({ success: true, data: combined, unsupported })
+    res.status(200).json({ success: true, data: combined, unsupported, errors })
   } catch (err: any) {
     console.error('social-aggregate error', err)
     res.status(500).json({ success: false, error: err.message || 'Unknown error' })
