@@ -72,16 +72,20 @@ async function fetchInstagram(userId: string, accessToken: string, limit: number
 
 async function fetchLinkedIn(orgId: string, accessToken: string, limit: number): Promise<FeedItem[]> {
   const owners = encodeURIComponent(`urn:li:organization:${orgId}`)
-  const url = `https://api.linkedin.com/v2/shares?q=owners&owners=${owners}&sharesPerOwner=${limit}&sortBy=LAST_MODIFIED&count=${limit}`
-  const resp = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'X-Restli-Protocol-Version': '2.0.0',
-    },
-  })
+  const sharesUrl = `https://api.linkedin.com/v2/shares?q=owners&owners=${owners}&sharesPerOwner=${limit}&sortBy=LAST_MODIFIED&count=${limit}`
+  const ugcUrl = `https://api.linkedin.com/v2/ugcPosts?q=authors&authors=List(${owners})&count=${limit}&sortBy=LAST_MODIFIED`
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    'X-Restli-Protocol-Version': '2.0.0',
+  } as Record<string, string>
+
+  let resp = await fetch(sharesUrl, { headers })
+  if (!resp.ok && (resp.status === 401 || resp.status === 403)) {
+    resp = await fetch(ugcUrl, { headers })
+  }
   if (!resp.ok) throw new Error(`LinkedIn ${resp.status}: ${await resp.text()}`)
   const data = await resp.json()
-  const elements = (data.elements || []) as Array<any>
+  const elements = ((data.elements || data.items) || []) as Array<any>
   return elements.slice(0, limit).map((e) => {
     const createdMs = e.created?.time || e.lastModified?.time
     const text = e.text?.text || e.specificContent?.['com.linkedin.ugc.ShareContent']?.shareCommentary?.text || null
@@ -230,7 +234,11 @@ export default async function handler(req: any, res: any) {
             try {
               const items = await fetchLinkedIn(orgId, token, Number(l))
               return { platform: 'linkedin', items }
-            } catch (e: any) { errors.push({ platform: 'linkedin', error: e?.message || 'error' }); return { platform: 'linkedin', items: [] } }
+            } catch (e: any) {
+              const msg = (e?.message || 'error').slice(0, 280)
+              errors.push({ platform: 'linkedin', error: msg })
+              return { platform: 'linkedin', items: [] }
+            }
           })())
           break
         }

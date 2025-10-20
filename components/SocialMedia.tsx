@@ -286,6 +286,9 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
                 <span className="text-navy-900 dark:text-navy-100">Access Token</span>
                 <input type="password" className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white" value={settings?.facebook?.accessToken || ''} onChange={(e) => setSettings((s) => ({ ...(s || {}), facebook: { ...(s?.facebook || {}), accessToken: e.target.value } }))} />
               </label>
+              <p className="mt-2 text-xs text-gray-600 dark:text-navy-300">
+                Use a Page Access Token (not a user token). The token must have read permissions for the page (e.g., pages_read_engagement). Page ID is the numeric ID of your Facebook Page.
+              </p>
               <div className="mt-3">
                 <button
                   type="button"
@@ -310,6 +313,9 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
                 <span className="text-navy-900 dark:text-navy-100">Bearer Token</span>
                 <input type="password" className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white" value={settings?.twitter?.bearer || ''} onChange={(e) => setSettings((s) => ({ ...(s || {}), twitter: { ...(s?.twitter || {}), bearer: e.target.value } }))} />
               </label>
+              <p className="mt-2 text-xs text-gray-600 dark:text-navy-300">
+                Requires a v2 Bearer Token from the X Developer Portal with read access. Username should not include @.
+              </p>
               <div className="mt-3">
                 <button
                   type="button"
@@ -334,6 +340,9 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
                 <span className="text-navy-900 dark:text-navy-100">Access Token</span>
                 <input type="password" className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white" value={settings?.instagram?.accessToken || ''} onChange={(e) => setSettings((s) => ({ ...(s || {}), instagram: { ...(s?.instagram || {}), accessToken: e.target.value } }))} />
               </label>
+              <p className="mt-2 text-xs text-gray-600 dark:text-navy-300">
+                IG Graph API requires a Business/Creator account linked to a Facebook Page. Use the Instagram User ID and a valid access token (e.g., instagram_basic). The user ID is numeric.
+              </p>
               <div className="mt-3">
                 <button
                   type="button"
@@ -358,6 +367,9 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
                 <span className="text-navy-900 dark:text-navy-100">Access Token</span>
                 <input type="password" className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white" value={settings?.linkedin?.accessToken || ''} onChange={(e) => setSettings((s) => ({ ...(s || {}), linkedin: { ...(s?.linkedin || {}), accessToken: e.target.value } }))} />
               </label>
+              <p className="mt-2 text-xs text-gray-600 dark:text-navy-300">
+                Use an access token with Marketing Developer permissions and scope like r_organization_social. The token must belong to a user who can manage the organization. Org ID is the numeric ID (we add the URN prefix).
+              </p>
               <div className="mt-3">
                 <button
                   type="button"
@@ -382,6 +394,9 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
                 <span className="text-navy-900 dark:text-navy-100">API Key</span>
                 <input type="password" className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white" value={settings?.youtube?.apiKey || ''} onChange={(e) => setSettings((s) => ({ ...(s || {}), youtube: { ...(s?.youtube || {}), apiKey: e.target.value } }))} />
               </label>
+              <p className="mt-2 text-xs text-gray-600 dark:text-navy-300">
+                Channel ID usually starts with UC… (not a @handle). Create a YouTube Data API v3 key in Google Cloud and enable the API for your project.
+              </p>
               <div className="mt-3">
                 <button
                   type="button"
@@ -402,6 +417,9 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
                 <span className="text-navy-900 dark:text-navy-100">Feed URL</span>
                 <input className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white" value={settings?.custom?.url || ''} onChange={(e) => setSettings((s) => ({ ...(s || {}), custom: { ...(s?.custom || {}), url: e.target.value } }))} />
               </label>
+              <p className="mt-2 text-xs text-gray-600 dark:text-navy-300">
+                Must return JSON with an array of items or a JSON Feed with an items array. Each item should include a URL and a timestamp field when possible.
+              </p>
               <div className="mt-3">
                 <button
                   type="button"

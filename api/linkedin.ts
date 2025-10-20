@@ -42,18 +42,35 @@ export default async function handler(req: any, res: any) {
     const owners = encodeURIComponent(`urn:li:organization:${orgId}`)
     const url = `https://api.linkedin.com/v2/shares?q=owners&owners=${owners}&sharesPerOwner=${Math.max(1, Math.min(5, limit))}&sortBy=LAST_MODIFIED&count=${Math.max(1, Math.min(5, limit))}`
 
-    const resp = await fetch(url, {
+    const doFetchShares = async () => fetch(url, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'X-Restli-Protocol-Version': '2.0.0',
       },
     })
+
+    const doFetchUgc = async () => {
+      const authors = encodeURIComponent(`urn:li:organization:${orgId}`)
+      const u = `https://api.linkedin.com/v2/ugcPosts?q=authors&authors=List(${authors})&count=${Math.max(1, Math.min(5, limit))}&sortBy=LAST_MODIFIED`;
+      return fetch(u, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'X-Restli-Protocol-Version': '2.0.0',
+        },
+      })
+    }
+
+    let resp = await doFetchShares()
+    if (!resp.ok && (resp.status === 401 || resp.status === 403)) {
+      // Fallback to ugcPosts for org content
+      resp = await doFetchUgc()
+    }
     if (!resp.ok) {
       const text = await resp.text()
       throw new Error(`LinkedIn API error ${resp.status}: ${text}`)
     }
     const data = await resp.json()
-    const elements: LiElement[] = data.elements || []
+    const elements: LiElement[] = (data.elements || data.items || []) || []
 
     const mapped: SocialPost[] = elements.slice(0, 5).map((e) => {
       const createdMs = e.created?.time || e.lastModified?.time
@@ -80,4 +97,3 @@ export default async function handler(req: any, res: any) {
     res.status(500).json({ success: false, error: err.message || 'Unknown error' })
   }
 }
-
