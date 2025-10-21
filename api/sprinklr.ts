@@ -219,17 +219,31 @@ export default async function handler(req: any, res: any) {
     debug.tokenUrl = tokenUrl
     debug.bulkFetchUrl = bulkFetchUrl
 
+    const authStyle = (process.env.SPRINKLR_OAUTH_AUTH_STYLE || 'body').toLowerCase()
+    const oauthScope = process.env.SPRINKLR_OAUTH_SCOPE
+    const tokenHeaders: Record<string, string> = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+    }
+    if (authStyle === 'basic' || authStyle === 'both') {
+      const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+      tokenHeaders.Authorization = `Basic ${basic}`
+    }
+
+    const tokenParams = new URLSearchParams()
+    tokenParams.set('grant_type', 'client_credentials')
+    if (authStyle !== 'basic') {
+      tokenParams.set('client_id', clientId)
+      tokenParams.set('client_secret', clientSecret)
+    }
+    if (oauthScope) {
+      tokenParams.set('scope', oauthScope)
+    }
+
     const tokenResp = await fetch(tokenUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json',
-      },
-      body: new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: clientId,
-        client_secret: clientSecret,
-      }),
+      headers: tokenHeaders,
+      body: tokenParams,
     })
     if (!tokenResp.ok) {
       const errTxt = await tokenResp.text()
