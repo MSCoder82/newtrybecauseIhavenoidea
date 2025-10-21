@@ -215,7 +215,10 @@ export default async function handler(req: any, res: any) {
 
     const tokenResp = await fetch(tokenUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
       body: new URLSearchParams({
         grant_type: 'client_credentials',
         client_id: clientId,
@@ -227,7 +230,21 @@ export default async function handler(req: any, res: any) {
       throw new Error(`Sprinklr token request failed: ${tokenResp.status} ${errTxt}`)
     }
 
-    const tokenJson = (await tokenResp.json()) as { access_token?: string }
+    // Ensure token response is JSON; many misconfigured hosts return HTML with 200 OK
+    const tokenCt = tokenResp.headers.get('content-type') || ''
+    const tokenTxt = await tokenResp.text()
+    if (!/application\/json/i.test(tokenCt)) {
+      const snippet = tokenTxt.slice(0, 200).replace(/\s+/g, ' ')
+      throw new Error(
+        `Sprinklr token endpoint did not return JSON (status ${tokenResp.status}, content-type: ${tokenCt}). Verify SPRINKLR_TOKEN_URL/SPRINKLR_ENVIRONMENT. Body starts with: ${snippet}`,
+      )
+    }
+    let tokenJson: { access_token?: string }
+    try {
+      tokenJson = JSON.parse(tokenTxt)
+    } catch (e) {
+      throw new Error(`Failed to parse token JSON. Body starts with: ${tokenTxt.slice(0, 200)}`)
+    }
     if (!tokenJson?.access_token) {
       throw new Error('Sprinklr token response missing `access_token`')
     }
@@ -244,16 +261,30 @@ export default async function handler(req: any, res: any) {
       headers: {
         Authorization: `Bearer ${tokenJson.access_token}`,
         'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
       body: JSON.stringify(fetchBody),
     })
-
     if (!postsResp.ok) {
       const errTxt = await postsResp.text()
       throw new Error(`Sprinklr posts request failed: ${postsResp.status} ${errTxt}`)
     }
 
-    const postsJson = await postsResp.json()
+    // Validate JSON response for posts
+    const postsCt = postsResp.headers.get('content-type') || ''
+    const postsTxt = await postsResp.text()
+    if (!/application\/json/i.test(postsCt)) {
+      const snippet = postsTxt.slice(0, 200).replace(/\s+/g, ' ')
+      throw new Error(
+        `Sprinklr posts endpoint did not return JSON (status ${postsResp.status}, content-type: ${postsCt}). Verify SPRINKLR_BULK_FETCH_URL/SPRINKLR_POSTS_ENDPOINT and host. Body starts with: ${snippet}`,
+      )
+    }
+    let postsJson: any
+    try {
+      postsJson = JSON.parse(postsTxt)
+    } catch (e) {
+      throw new Error(`Failed to parse posts JSON. Body starts with: ${postsTxt.slice(0, 200)}`)
+    }
     const messages = extractMessages(postsJson)
     const posts = messages.slice(0, limit).map((entry, idx) => normalizePost(entry, idx, includeRaw))
 
