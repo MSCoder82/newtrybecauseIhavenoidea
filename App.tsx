@@ -147,20 +147,27 @@ const App: React.FC = () => {
 
     const initializeSession = async () => {
       setIsLoading(true);
-      const { data, error } = await supabase.auth.getSession();
+      try {
+        const { data, error } = await supabase.auth.getSession();
 
-      if (!isMounted) {
-        return;
-      }
+        if (!isMounted) {
+          return;
+        }
 
-      if (error) {
-        console.error('Error retrieving auth session:', error);
-      }
+        if (error) {
+          console.error('Error retrieving auth session:', error);
+        }
 
-      await handleSession(data?.session ?? null);
-
-      if (isMounted) {
-        setIsLoading(false);
+        await handleSession(data?.session ?? null);
+      } catch (e) {
+        console.error('Unhandled error during session initialization:', e);
+        try {
+          showToast('Failed to initialize session. Please refresh or sign in again.', 'error');
+        } catch {}
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
@@ -178,8 +185,13 @@ const App: React.FC = () => {
 
       const sameUser = session?.user?.id && session.user.id === lastUserIdRef.current;
 
+      // Silent updates shouldn't toggle the global loading spinner
       if (silentEvents.includes(event) || (sameUser && (event === 'SIGNED_IN' || event === 'USER_UPDATED'))) {
-        await handleSession(session, { fetchData: false });
+        try {
+          await handleSession(session, { fetchData: false });
+        } catch (e) {
+          console.error('Error handling silent auth event:', e);
+        }
         return;
       }
 
@@ -192,10 +204,17 @@ const App: React.FC = () => {
       }
 
       setIsLoading(true);
-      await handleSession(session ?? null);
-
-      if (isMounted) {
-        setIsLoading(false);
+      try {
+        await handleSession(session ?? null);
+      } catch (e) {
+        console.error('Unhandled error during auth state change handling:', e);
+        try {
+          showToast('Authentication changed. Please refresh or sign in again.', 'error');
+        } catch {}
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     });
 
