@@ -18,6 +18,48 @@
         }
       }
     </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'usace-red': '#D42127',
+              'usace-blue': '#003366',
+              'navy': {
+                '50': '#f0f4f8',
+                '100': '#dde7f0',
+                '200': '#c2d5e3',
+                '300': '#9cb9d1',
+                '400': '#7195b9',
+                '500': '#55779d',
+                '600': '#446184',
+                '700': '#3a516e',
+                '800': '#33455d',
+                '900': '#2f3d51',
+                '950': '#1d2635',
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      @keyframes fade-in-down {
+        0% {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .animate-fade-in-down {
+        animation: fade-in-down 0.5s ease-out forwards;
+      }
+    </style>
   </head>
   <body class="bg-navy-50 dark:bg-navy-950">
     <div id="root"></div>
