@@ -219,8 +219,14 @@ export default async function handler(req: any, res: any) {
     debug.tokenUrl = tokenUrl
     debug.bulkFetchUrl = bulkFetchUrl
 
-    const authStyle = (process.env.SPRINKLR_OAUTH_AUTH_STYLE || 'body').toLowerCase()
-    const oauthScope = process.env.SPRINKLR_OAUTH_SCOPE
+    const authStyle = (process.env.SPRINKLR_OAUTH_AUTH_STYLE || process.env.SPRINKLR_TOKEN_AUTH_STYLE || 'body').toLowerCase()
+    const oauthScope = process.env.SPRINKLR_OAUTH_SCOPE || process.env.SPRINKLR_TOKEN_SCOPE || process.env.SPRINKLR_SCOPE
+    const oauthAudience =
+      process.env.SPRINKLR_OAUTH_AUDIENCE || process.env.SPRINKLR_TOKEN_AUDIENCE || process.env.SPRINKLR_AUDIENCE
+    const oauthGrantType =
+      process.env.SPRINKLR_OAUTH_GRANT_TYPE || process.env.SPRINKLR_TOKEN_GRANT_TYPE || 'client_credentials'
+    const oauthExtraParams =
+      process.env.SPRINKLR_OAUTH_EXTRA_PARAMS || process.env.SPRINKLR_TOKEN_EXTRA_PARAMS || ''
     const tokenHeaders: Record<string, string> = {
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json',
@@ -231,13 +237,35 @@ export default async function handler(req: any, res: any) {
     }
 
     const tokenParams = new URLSearchParams()
-    tokenParams.set('grant_type', 'client_credentials')
+    tokenParams.set('grant_type', oauthGrantType)
     if (authStyle !== 'basic') {
       tokenParams.set('client_id', clientId)
       tokenParams.set('client_secret', clientSecret)
     }
     if (oauthScope) {
       tokenParams.set('scope', oauthScope)
+    }
+    if (oauthAudience) {
+      tokenParams.set('audience', oauthAudience)
+    }
+    if (oauthExtraParams) {
+      try {
+        const parsed = JSON.parse(oauthExtraParams)
+        Object.entries(parsed).forEach(([key, value]) => {
+          if (value === undefined || value === null) return
+          tokenParams.set(key, Array.isArray(value) ? value.join(' ') : String(value))
+        })
+      } catch {
+        oauthExtraParams
+          .split('&')
+          .map((pair) => pair.trim())
+          .filter(Boolean)
+          .forEach((pair) => {
+            const [rawKey, rawValue] = pair.split('=')
+            if (!rawKey) return
+            tokenParams.set(rawKey, decodeURIComponent(rawValue ?? ''))
+          })
+      }
     }
 
     const tokenResp = await fetch(tokenUrl, {

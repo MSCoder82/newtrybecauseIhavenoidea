@@ -42,6 +42,14 @@ Notes:
 - Serverless proxy: `api/sprinklr.ts` performs OAuth client-credentials and fetches posts from `SPRINKLR_POSTS_ENDPOINT`, filtered by `accounts` (CSV) and `limit`.
 - Configure env vars as above. You can pass `?accounts=acc_1,acc_2&limit=20` from the UI to restrict to your unit’s accounts.
 - For stricter control, set `SPRINKLR_ALLOWED_ACCOUNT_IDS` and ignore client-supplied accounts.
+- OAuth tweaks: `SPRINKLR_OAUTH_AUTH_STYLE` lets you switch between sending credentials in the body (default) or HTTP Basic. Use `SPRINKLR_OAUTH_SCOPE`, `SPRINKLR_OAUTH_AUDIENCE`, `SPRINKLR_OAUTH_GRANT_TYPE`, or `SPRINKLR_OAUTH_EXTRA_PARAMS` (JSON or query-string) to satisfy tenant-specific requirements for the token request.
+
+### Team Social Curator
+
+- Frontend component: `components/SocialMediaCurator.tsx` lets teams connect one OAuth integration per platform and share feeds.
+- Edge Functions live under `supabase/functions/*` (`exchange-oauth-token`, `save-social-tokens`, `disconnect-social-account`, `fetch-social-posts`). Deploy them with `supabase functions deploy <name>`.
+- Client-side env vars: set `VITE_SOCIAL_OAUTH_REDIRECT_URI`, `VITE_GOOGLE_CLIENT_ID`, `VITE_FACEBOOK_APP_ID`, and `VITE_LINKEDIN_CLIENT_ID`. Server-side envs (`GOOGLE_CLIENT_ID`, `FACEBOOK_APP_ID`, `LINKEDIN_CLIENT_ID`, plus secrets) remain required for the edge functions.
+- Implementation notes and the database schema are documented in `team-integration-guide.md`.
 
 ### Additional Sprinklr Notes
 

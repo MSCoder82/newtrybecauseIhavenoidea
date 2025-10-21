@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Campaign, Role } from '../types';
 import { supabase } from '../lib/supabase';
 import { useNotification } from '../contexts/NotificationProvider';
+import SocialMediaCurator from './SocialMediaCurator';
 
 interface SocialMediaProps {
   role: Role;
@@ -321,6 +322,9 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
           </div>
         </section>
       )}
+
+      {/* Team social curator */}
+      <SocialMediaCurator teamId={teamId} />
 
       {/* Saved posts table */}
       <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
