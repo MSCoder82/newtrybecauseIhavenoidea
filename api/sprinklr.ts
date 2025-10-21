@@ -107,6 +107,7 @@ const sanitizeLimit = (value: unknown): number => {
 const unique = (values: string[]): string[] => Array.from(new Set(values.filter(Boolean)))
 
 export default async function handler(req: any, res: any) {
+  const debug: Record<string, any> = {}
   try {
     if (req.method !== 'GET' && req.method !== 'POST') {
       res.status(405).json({ success: false, error: 'Method not allowed' })
@@ -213,6 +214,11 @@ export default async function handler(req: any, res: any) {
       req.query?.includeRaw === 'true' ||
       req.query?.includeRaw === true
 
+    debug.baseEnv = baseEnv
+    debug.baseUrl = baseUrl
+    debug.tokenUrl = tokenUrl
+    debug.bulkFetchUrl = bulkFetchUrl
+
     const tokenResp = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
@@ -256,6 +262,9 @@ export default async function handler(req: any, res: any) {
       sortOrder,
     }
 
+    debug.accountParam = accountParam
+    debug.requestedProfiles = requestedProfiles.length
+    debug.effectiveProfiles = effectiveProfiles.length
     const postsResp = await fetch(bulkFetchUrl, {
       method: 'POST',
       headers: {
@@ -311,7 +320,11 @@ export default async function handler(req: any, res: any) {
 
     res.status(200).json(responseBody)
   } catch (err: any) {
-    console.error('Sprinklr API error:', err)
+    try {
+      console.error('Sprinklr API error:', { message: err?.message, ...debug })
+    } catch {
+      console.error('Sprinklr API error:', err)
+    }
     res.status(500).json({ success: false, error: err?.message || 'Unknown error' })
   }
 }

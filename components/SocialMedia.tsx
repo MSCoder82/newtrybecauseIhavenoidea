@@ -123,7 +123,15 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
         body: JSON.stringify({ profileIds, limit }),
       });
 
-      if (!res.ok) throw new Error(`Sprinklr feed fetch failed: ${res.status}`);
+      if (!res.ok) {
+        const text = await res.text();
+        try {
+          const j = JSON.parse(text);
+          throw new Error(j?.error || `Sprinklr feed fetch failed: ${res.status}`);
+        } catch {
+          throw new Error(text || `Sprinklr feed fetch failed: ${res.status}`);
+        }
+      }
       const json = await res.json();
       const fetched = Array.isArray(json.posts) ? json.posts : [];
       setFeedPosts(fetched);
@@ -188,7 +196,15 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profileIds, limit: 1 }),
     });
-    if (!res.ok) throw new Error(`Sprinklr test failed: ${res.status}`);
+    if (!res.ok) {
+      const text = await res.text();
+      try {
+        const j = JSON.parse(text);
+        throw new Error(j?.error || `Sprinklr test failed: ${res.status}`);
+      } catch {
+        throw new Error(text || `Sprinklr test failed: ${res.status}`);
+      }
+    }
     const json = await res.json();
     const count = Array.isArray(json.posts) ? json.posts.length : 0;
     showToast(`Sprinklr OK (${count} item${count === 1 ? '' : 's'})`, 'success');
