@@ -149,7 +149,9 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
           <div className="space-y-4">
             <div className="rounded-md border border-gray-200 p-4 dark:border-navy-700">
               <div className="font-semibold text-navy-900 dark:text-white mb-2">Integrations JSON</div>
-              <p className="text-xs text-gray-600 dark:text-navy-300 mb-3">Store one or more API configurations. Example: [{"name":"My API","baseUrl":"https://api.example.com"}].</p>
+              <p className="text-xs text-gray-600 dark:text-navy-300 mb-3">
+                Store one or more API configurations. Example: <code>{'[{"name":"My API","baseUrl":"https://api.example.com"}]'}</code>.
+              </p>
               <textarea
                 className="w-full h-48 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white font-mono"
                 value={JSON.stringify(settings?.integrations ?? [], null, 2)}
