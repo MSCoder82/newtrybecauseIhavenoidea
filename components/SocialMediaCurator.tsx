@@ -41,6 +41,14 @@ interface NormalizedPost {
   isError?: boolean
 }
 
+interface PublicPlatformConfig {
+  client_id?: string | null
+  auth_url?: string | null
+  token_url?: string | null
+  scopes?: string | null
+  redirect_uri?: string | null
+}
+
 type ConnectedState = Record<PlatformKey, boolean>
 type FeedPostsState = Record<number, NormalizedPost[]>
 type FeedLoadingState = Record<number, boolean>
@@ -117,68 +125,106 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
   const [showSetup, setShowSetup] = useState(false)
   const [isHydrating, setIsHydrating] = useState(false)
   const [isProcessingOAuth, setIsProcessingOAuth] = useState(false)
+  const [configs, setConfigs] = useState<Record<PlatformKey, PublicPlatformConfig>>({
+    youtube: {},
+    facebook: {},
+    instagram: {},
+    linkedin: {},
+  })
+  const [configForm, setConfigForm] = useState<PublicPlatformConfig & { client_secret?: string }>({})
+  const [configPlatform, setConfigPlatform] = useState<PlatformKey>('youtube')
+  const [configSaving, setConfigSaving] = useState(false)
 
   const redirectUri = useMemo(() => {
     if (typeof window === 'undefined') return ''
-    return import.meta.env.VITE_SOCIAL_OAUTH_REDIRECT_URI || window.location.origin
-  }, [])
+    // Prefer stored per-team config if available for the selected platform
+    const cfg = selectedPlatform ? configs[selectedPlatform as PlatformKey] : undefined
+    return (cfg?.redirect_uri as string | undefined) || import.meta.env.VITE_SOCIAL_OAUTH_REDIRECT_URI || window.location.origin
+  }, [selectedPlatform, configs])
 
   const buildAuthUrl = useCallback(
     (platform: PlatformKey, state: string) => {
       if (typeof window === 'undefined') return ''
 
+      const cfg = configs[platform] || {}
       switch (platform) {
         case 'youtube': {
-          const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
-          if (!clientId) {
-            throw new Error('Missing VITE_GOOGLE_CLIENT_ID environment variable.')
-          }
+          const clientId = (cfg.client_id as string | undefined) || (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)
+          if (!clientId) throw new Error('Missing YouTube client_id. Configure in Platform configuration.')
+          const authUrl = (cfg.auth_url as string | undefined) || 'https://accounts.google.com/o/oauth2/v2/auth'
+          const scopes = (cfg.scopes as string | undefined) || PLATFORM_MAP.youtube.scopes
           const params = new URLSearchParams({
             client_id: clientId,
             redirect_uri: redirectUri,
             response_type: 'code',
-            scope: PLATFORM_MAP.youtube.scopes,
+            scope: scopes,
             state,
             access_type: 'offline',
             prompt: 'consent',
           })
-          return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
+          return `${authUrl}?${params.toString()}`
         }
         case 'facebook':
         case 'instagram': {
-          const clientId = import.meta.env.VITE_FACEBOOK_APP_ID as string | undefined
-          if (!clientId) {
-            throw new Error('Missing VITE_FACEBOOK_APP_ID environment variable.')
-          }
+          const clientId = (cfg.client_id as string | undefined) || (import.meta.env.VITE_FACEBOOK_APP_ID as string | undefined)
+          if (!clientId) throw new Error('Missing Facebook App ID. Configure in Platform configuration.')
+          const authUrl = (cfg.auth_url as string | undefined) || 'https://www.facebook.com/v18.0/dialog/oauth'
+          const scopes = (cfg.scopes as string | undefined) || PLATFORM_MAP[platform].scopes
           const params = new URLSearchParams({
             client_id: clientId,
             redirect_uri: redirectUri,
             state,
-            scope: PLATFORM_MAP[platform].scopes,
+            scope: scopes,
             response_type: 'code',
           })
-          return `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`
+          return `${authUrl}?${params.toString()}`
         }
         case 'linkedin': {
-          const clientId = import.meta.env.VITE_LINKEDIN_CLIENT_ID as string | undefined
-          if (!clientId) {
-            throw new Error('Missing VITE_LINKEDIN_CLIENT_ID environment variable.')
-          }
+          const clientId = (cfg.client_id as string | undefined) || (import.meta.env.VITE_LINKEDIN_CLIENT_ID as string | undefined)
+          if (!clientId) throw new Error('Missing LinkedIn Client ID. Configure in Platform configuration.')
+          const authUrl = (cfg.auth_url as string | undefined) || 'https://www.linkedin.com/oauth/v2/authorization'
+          const scopes = (cfg.scopes as string | undefined) || PLATFORM_MAP.linkedin.scopes.replace(/,/g, ' ')
           const params = new URLSearchParams({
             response_type: 'code',
             client_id: clientId,
             redirect_uri: redirectUri,
             state,
-            scope: PLATFORM_MAP.linkedin.scopes.replace(/,/g, ' '),
+            scope: scopes,
           })
-          return `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`
+          return `${authUrl}?${params.toString()}`
         }
         default:
           throw new Error(`Unsupported platform: ${platform}`)
       }
     },
-    [redirectUri],
+    [configs, redirectUri],
   )
+
+  const loadPlatformConfigs = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke<{ success?: boolean; configs?: Record<PlatformKey, PublicPlatformConfig> }>('get-social-config')
+      if (error) throw new Error(error.message)
+      if (data?.configs) setConfigs(data.configs)
+    } catch (err) {
+      console.warn('Failed to load platform configs', err)
+    }
+  }, [])
+
+  const savePlatformConfig = useCallback(async () => {
+    try {
+      setConfigSaving(true)
+      const body: Record<string, any> = { platform: configPlatform, ...configForm }
+      const { error } = await supabase.functions.invoke('save-social-config', { body })
+      if (error) throw new Error(error.message)
+      showToast('Platform configuration saved', 'success')
+      setConfigForm({})
+      await loadPlatformConfigs()
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to save configuration', 'error')
+    } finally {
+      setConfigSaving(false)
+    }
+  }, [configForm, configPlatform, loadPlatformConfigs, showToast])
 
   const resetOAuthState = () => {
     localStorage.removeItem('social_oauth_state')
@@ -247,6 +293,10 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
     }
     setIsHydrating(false)
   }, [teamId, platforms, showToast])
+
+  useEffect(() => {
+    void loadPlatformConfigs()
+  }, [loadPlatformConfigs])
 
   const refreshFeed = useCallback(
     async (feed: Feed, limit = 5) => {
@@ -556,6 +606,104 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
 
   return (
     <div className="space-y-6">
+      {/* Platform configuration */}
+      <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md border border-gray-200 dark:border-navy-700">
+        <h3 className="text-xl font-semibold text-navy-900 dark:text-white mb-4">Platform configuration</h3>
+        <div className="grid gap-3 md:grid-cols-5 mb-3">
+          <div className="md:col-span-1">
+            <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Platform</label>
+            <select
+              value={configPlatform}
+              onChange={(e) => setConfigPlatform(e.target.value as PlatformKey)}
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
+            >
+              {platforms.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Client ID</label>
+            <input
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
+              placeholder={configs[configPlatform]?.client_id ? 'Saved' : 'e.g., 123.apps.googleusercontent.com'}
+              value={configForm.client_id ?? ''}
+              onChange={(e) => setConfigForm((f) => ({ ...f, client_id: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Client Secret</label>
+            <input
+              type="password"
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
+              placeholder="Not shown for security"
+              value={configForm.client_secret ?? ''}
+              onChange={(e) => setConfigForm((f) => ({ ...f, client_secret: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Auth URL</label>
+            <input
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
+              placeholder={
+                configPlatform === 'linkedin'
+                  ? 'https://www.linkedin.com/oauth/v2/authorization'
+                  : configPlatform === 'youtube'
+                  ? 'https://accounts.google.com/o/oauth2/v2/auth'
+                  : 'https://www.facebook.com/v18.0/dialog/oauth'
+              }
+              value={configForm.auth_url ?? ''}
+              onChange={(e) => setConfigForm((f) => ({ ...f, auth_url: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Token URL</label>
+            <input
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
+              placeholder={
+                configPlatform === 'linkedin'
+                  ? 'https://www.linkedin.com/oauth/v2/accessToken'
+                  : 'https://graph.facebook.com/v18.0/oauth/access_token'
+              }
+              value={configForm.token_url ?? ''}
+              onChange={(e) => setConfigForm((f) => ({ ...f, token_url: e.target.value }))}
+            />
+          </div>
+          <div className="md:col-span-3">
+            <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Scopes (space- or comma-separated)</label>
+            <input
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
+              placeholder={platforms.find((p) => p.id === configPlatform)?.scopes}
+              value={configForm.scopes ?? ''}
+              onChange={(e) => setConfigForm((f) => ({ ...f, scopes: e.target.value }))}
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Redirect URI</label>
+            <input
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
+              placeholder={window?.location?.origin}
+              value={configForm.redirect_uri ?? ''}
+              onChange={(e) => setConfigForm((f) => ({ ...f, redirect_uri: e.target.value }))}
+            />
+          </div>
+        </div>
+        <div>
+          <button
+            type="button"
+            onClick={savePlatformConfig}
+            disabled={configSaving}
+            className="rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue disabled:opacity-50"
+          >
+            {configSaving ? 'Saving…' : 'Save configuration'}
+          </button>
+          <p className="text-xs text-gray-500 dark:text-navy-300 mt-2">
+            Secrets are never shown back in the UI. Update the secret by re-entering it.
+          </p>
+        </div>
+      </section>
       <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>

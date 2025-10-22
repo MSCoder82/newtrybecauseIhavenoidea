@@ -47,8 +47,10 @@ Notes:
 ### Team Social Curator
 
 - Frontend component: `components/SocialMediaCurator.tsx` lets teams connect one OAuth integration per platform and share feeds.
-- Edge Functions live under `supabase/functions/*` (`exchange-oauth-token`, `save-social-tokens`, `disconnect-social-account`, `fetch-social-posts`). Deploy them with `supabase functions deploy <name>`.
-- Client-side env vars: set `VITE_SOCIAL_OAUTH_REDIRECT_URI`, `VITE_GOOGLE_CLIENT_ID`, `VITE_FACEBOOK_APP_ID`, and `VITE_LINKEDIN_CLIENT_ID`. Server-side envs (`GOOGLE_CLIENT_ID`, `FACEBOOK_APP_ID`, `LINKEDIN_CLIENT_ID`, plus secrets) remain required for the edge functions.
+- Edge Functions live under `supabase/functions/*` (`exchange-oauth-token`, `save-social-tokens`, `disconnect-social-account`, `fetch-social-posts`, `get-social-config`, `save-social-config`). Deploy them with `supabase functions deploy <name>`.
+- Per-team platform config: users can input `client_id`, `client_secret`, `auth_url`, `token_url`, `scopes`, and `redirect_uri` in the UI. It is stored in `social_platform_configs` and a safe view `social_platform_configs_public`.
+- Secrets are never returned to the client; `exchange-oauth-token` reads secrets using a service-role client.
+- Minimal envs still required: `SUPABASE_URL`, `SUPABASE_ANON_KEY` for clients, and `SUPABASE_SERVICE_ROLE_KEY` for edge functions only. UI fallbacks to `VITE_*` can remain but are no longer required.
 - Implementation notes and the database schema are documented in `team-integration-guide.md`.
 
 ### Additional Sprinklr Notes

@@ -41,12 +41,65 @@ const getSupabaseClient = (req: Request) => {
   })
 }
 
-const buildTokenRequest = (platform: SupportedPlatform, code: string, redirectUri: string) => {
+// Service role client for reading client_secret safely
+const getServiceClient = () => {
+  const supabaseUrl = assertEnv('SUPABASE_URL')
+  const serviceKey = assertEnv('SUPABASE_SERVICE_ROLE_KEY')
+  return createClient(supabaseUrl, serviceKey)
+}
+
+const buildTokenRequest = async (
+  platform: SupportedPlatform,
+  code: string,
+  redirectUri: string,
+  teamId: number,
+) => {
+  // Prefer DB-provided config; fall back to envs if necessary
+  const svc = getServiceClient()
+  const { data: cfg, error } = await svc
+    .from('social_platform_configs')
+    .select('client_id, client_secret, token_url, scopes, extra')
+    .eq('team_id', teamId)
+    .eq('platform', platform)
+    .maybeSingle()
+  if (error) throw error
+
+  const tokenUrlDefaults: Record<SupportedPlatform, string> = {
+    youtube: 'https://oauth2.googleapis.com/token',
+    facebook: 'https://graph.facebook.com/v18.0/oauth/access_token',
+    instagram: 'https://graph.facebook.com/v18.0/oauth/access_token',
+    linkedin: 'https://www.linkedin.com/oauth/v2/accessToken',
+  }
+
+  const clientIdEnv: Record<SupportedPlatform, string | undefined> = {
+    youtube: Deno.env.get('GOOGLE_CLIENT_ID'),
+    facebook: Deno.env.get('FACEBOOK_APP_ID'),
+    instagram: Deno.env.get('FACEBOOK_APP_ID'),
+    linkedin: Deno.env.get('LINKEDIN_CLIENT_ID'),
+  }
+  const clientSecretEnv: Record<SupportedPlatform, string | undefined> = {
+    youtube: Deno.env.get('GOOGLE_CLIENT_SECRET'),
+    facebook: Deno.env.get('FACEBOOK_APP_SECRET'),
+    instagram: Deno.env.get('FACEBOOK_APP_SECRET'),
+    linkedin: Deno.env.get('LINKEDIN_CLIENT_SECRET'),
+  }
+  const tokenUrlEnv: Record<SupportedPlatform, string | undefined> = {
+    youtube: Deno.env.get('GOOGLE_TOKEN_URL') ?? undefined,
+    facebook: Deno.env.get('FACEBOOK_TOKEN_URL') ?? undefined,
+    instagram: Deno.env.get('FACEBOOK_TOKEN_URL') ?? undefined,
+    linkedin: Deno.env.get('LINKEDIN_TOKEN_URL') ?? undefined,
+  }
+
+  const clientId = (cfg?.client_id as string | undefined) ?? clientIdEnv[platform]
+  const clientSecret = (cfg?.client_secret as string | undefined) ?? clientSecretEnv[platform]
+  const tokenUrl = (cfg?.token_url as string | undefined) ?? tokenUrlEnv[platform] ?? tokenUrlDefaults[platform]
+
+  if (!clientId || !clientSecret) {
+    throw new Error(`Missing client credentials for ${platform}. Configure them in team settings.`)
+  }
+
   switch (platform) {
     case 'youtube': {
-      const clientId = assertEnv('GOOGLE_CLIENT_ID')
-      const clientSecret = assertEnv('GOOGLE_CLIENT_SECRET')
-      const tokenUrl = Deno.env.get('GOOGLE_TOKEN_URL') ?? 'https://oauth2.googleapis.com/token'
       const body = new URLSearchParams({
         code,
         client_id: clientId,
@@ -59,21 +112,15 @@ const buildTokenRequest = (platform: SupportedPlatform, code: string, redirectUr
     }
     case 'facebook':
     case 'instagram': {
-      const appId = assertEnv('FACEBOOK_APP_ID')
-      const appSecret = assertEnv('FACEBOOK_APP_SECRET')
-      const tokenUrl = Deno.env.get('FACEBOOK_TOKEN_URL') ?? 'https://graph.facebook.com/v18.0/oauth/access_token'
       const body = new URLSearchParams({
         code,
-        client_id: appId,
-        client_secret: appSecret,
+        client_id: clientId,
+        client_secret: clientSecret,
         redirect_uri: redirectUri,
       })
       return { tokenUrl, body }
     }
     case 'linkedin': {
-      const clientId = assertEnv('LINKEDIN_CLIENT_ID')
-      const clientSecret = assertEnv('LINKEDIN_CLIENT_SECRET')
-      const tokenUrl = Deno.env.get('LINKEDIN_TOKEN_URL') ?? 'https://www.linkedin.com/oauth/v2/accessToken'
       const body = new URLSearchParams({
         grant_type: 'authorization_code',
         code,
@@ -114,7 +161,10 @@ serve(async (req: Request) => {
       throw new Error('platform, code, and redirect_uri are required')
     }
 
-    const { tokenUrl, body } = buildTokenRequest(platform, code, redirectUri)
+    const teamId = userData.user.user_metadata?.team_id
+    if (!teamId) throw new Error('User not associated with a team')
+
+    const { tokenUrl, body } = await buildTokenRequest(platform, code, redirectUri, Number(teamId))
 
     const response = await fetch(tokenUrl, {
       method: 'POST',
