@@ -200,21 +200,49 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
     [configs, redirectUri],
   )
 
+  const invokeFunction = useCallback(
+    <T,>(
+      fn: string,
+      options?: {
+        body?: unknown
+        headers?: Record<string, string>
+        method?: 'GET' | 'POST'
+      },
+    ) => {
+      return supabase.auth.getSession().then(({ data: sessionData, error: sessionError }) => {
+        if (sessionError) throw sessionError
+        const accessToken = sessionData?.session?.access_token
+        if (!accessToken) throw new Error('No active session. Please sign in again.')
+
+        const mergedOptions = {
+          ...options,
+          headers: {
+            ...(options?.headers ?? {}),
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+
+        return supabase.functions.invoke<T>(fn, mergedOptions)
+      })
+    },
+    [],
+  )
+
   const loadPlatformConfigs = useCallback(async () => {
     try {
-      const { data, error } = await supabase.functions.invoke<{ success?: boolean; configs?: Record<PlatformKey, PublicPlatformConfig> }>('get-social-config')
+      const { data, error } = await invokeFunction<{ success?: boolean; configs?: Record<PlatformKey, PublicPlatformConfig> }>('get-social-config')
       if (error) throw new Error(error.message)
       if (data?.configs) setConfigs(data.configs)
     } catch (err) {
       console.warn('Failed to load platform configs', err)
     }
-  }, [])
+  }, [invokeFunction])
 
   const savePlatformConfig = useCallback(async () => {
     try {
       setConfigSaving(true)
       const body: Record<string, any> = { platform: configPlatform, ...configForm }
-      const { error } = await supabase.functions.invoke('save-social-config', { body })
+      const { error } = await invokeFunction('save-social-config', { body })
       if (error) throw new Error(error.message)
       showToast('Platform configuration saved', 'success')
       setConfigForm({})
@@ -224,7 +252,7 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
     } finally {
       setConfigSaving(false)
     }
-  }, [configForm, configPlatform, loadPlatformConfigs, showToast])
+  }, [configForm, configPlatform, invokeFunction, loadPlatformConfigs, showToast])
 
   const resetOAuthState = () => {
     localStorage.removeItem('social_oauth_state')
@@ -303,7 +331,7 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
       setFeedLoading((prev) => ({ ...prev, [feed.id]: true }))
 
       try {
-        const { data, error } = await supabase.functions.invoke<{
+        const { data, error } = await invokeFunction<{
           success?: boolean
           posts?: NormalizedPost[]
           error?: string
@@ -344,13 +372,13 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
         setFeedLoading((prev) => ({ ...prev, [feed.id]: false }))
       }
     },
-    [showToast],
+    [invokeFunction, showToast],
   )
 
   const disconnectAccount = useCallback(
     async (platform: PlatformKey) => {
       try {
-        const { error } = await supabase.functions.invoke('disconnect-social-account', {
+        const { error } = await invokeFunction('disconnect-social-account', {
           body: { platform },
         })
 
@@ -367,7 +395,7 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
         showToast(message, 'error')
       }
     },
-    [loadConnectedAccounts, loadFeeds, showToast],
+    [invokeFunction, loadConnectedAccounts, loadFeeds, showToast],
   )
 
   const addFeed = useCallback(async () => {
@@ -494,7 +522,7 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
 
       setIsProcessingOAuth(true)
       try {
-        const exchange = await supabase.functions.invoke<{
+        const exchange = await invokeFunction<{
           access_token?: string
           refresh_token?: string
           expires_in?: number
@@ -522,7 +550,7 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
           data.expires_at ??
           (typeof data.expires_in === 'number' ? Date.now() + data.expires_in * 1000 : null)
 
-        const save = await supabase.functions.invoke('save-social-tokens', {
+        const save = await invokeFunction('save-social-tokens', {
           body: {
             platform,
             access_token: data.access_token,
@@ -545,7 +573,7 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
         resetOAuthState()
       }
     },
-    [loadConnectedAccounts, redirectUri, showToast],
+    [invokeFunction, loadConnectedAccounts, redirectUri, showToast],
   )
 
   useEffect(() => {
