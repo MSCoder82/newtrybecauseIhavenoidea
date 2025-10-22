@@ -74,6 +74,7 @@ export const isSupabaseConfigured = usingCustomCredentials && configurationError
 export const supabaseConfigurationError = configurationError;
 export const supabase = supabaseClient;
 
+
 if (typeof window !== 'undefined') {
   (window as any).__supabase = supabase;
 }
