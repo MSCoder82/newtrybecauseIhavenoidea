@@ -181,7 +181,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
           </div>
           <div className="mt-4">
             <button onClick={saveSettings} className="rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue">Save settings</button>
-            {settingsLoading && <span className="ml-3 text-sm text-gray-500 dark:text-navy-300">Loadingâ€¦</span>}
+            {settingsLoading && <span className="ml-3 text-sm text-gray-500 dark:text-navy-300">LoadingÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦</span>}
           </div>
         </section>
       )}
@@ -211,7 +211,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
             <tbody className="divide-y divide-gray-200 dark:divide-navy-700">
               {savedPosts.map((post) => (
                 <tr key={post.id} className="hover:bg-navy-50/60 dark:hover:bg-navy-900/50">
-                  <td className="px-4 py-3 text-sm font-medium text-navy-900 dark:text-white">{post.network || 'â€”'}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-navy-900 dark:text-white">{post.network || 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â'}</td>
                   <td className="px-4 py-3 text-sm text-navy-800 dark:text-navy-100">{post.title || '(untitled)'}</td>
                   <td className="px-4 py-3 text-sm">
                     <a href={post.url} target="_blank" rel="noreferrer" className="text-usace-blue hover:underline">
@@ -219,7 +219,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
                     </a>
                   </td>
                   <td className="px-4 py-3 text-sm text-navy-800 dark:text-navy-100">
-                    {post.published_at ? formatDate(post.published_at) : 'â€”'}
+                    {post.published_at ? formatDate(post.published_at) : 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â'}
                   </td>
                   <td className="px-4 py-3 text-sm text-navy-800 dark:text-navy-100">
                     <select
@@ -240,46 +240,12 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
             </tbody>
           </table>
           {savedPosts.length === 0 && (
-            <div className="text-sm text-gray-600 dark:text-navy-300 mt-3">No saved posts yet. Use "Load feeds" above.</div>
+            <div className="text-sm text-gray-600 dark:text-navy-300 mt-3">No saved posts yet. No saved posts yet.</div>
           )}
         </div>
       </section>
 
-      {/* Feed loader */}
-      <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-xl font-semibold text-navy-900 dark:text-white">Latest posts (Feeds)</h3>
-            <p className="text-sm text-gray-600 dark:text-navy-300">Powered by the Sprinklr bulk-fetch API (set SPRINKLR_* environment variables on the server).</p>
-          </div>
-          <button
-            type="button"
-            onClick={loadFeedPosts}
-            disabled={feedLoading}
-            className="rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue"
-          >
-            {feedLoading ? 'Loadingâ€¦' : 'Load feeds'}
-          </button>
-        </div>
-        {feedError && <p className="mt-3 text-sm text-red-600 dark:text-red-300">{feedError}</p>}
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {feedPosts.map((p: any, idx: number) => (
-            <div key={p.url || idx} className="rounded-md border border-gray-200 p-4 dark:border-navy-700">
-              <div className="text-sm text-gray-500 dark:text-navy-300 mb-1">{p.network || 'Feed'}</div>
-              <div className="font-semibold text-navy-900 dark:text-white mb-1">{p.title || '(untitled)'}</div>
-              {p.url && (
-                <a href={p.url} target="_blank" rel="noreferrer" className="text-usace-blue text-sm hover:underline">
-                  View post
-                </a>
-              )}
-              <div className="text-xs text-gray-500 dark:text-navy-300 mt-2">{p.published_at || ''}</div>
-            </div>
-          ))}
-          {feedPosts.length === 0 && (
-            <div className="text-sm text-gray-600 dark:text-navy-300">No feed posts loaded.</div>
-          )}
-        </div>
-      </section>
+      {/* Feed loader removed */}
     </div>
   );
 };
