@@ -73,3 +73,7 @@ if (!usingCustomCredentials) {
 export const isSupabaseConfigured = usingCustomCredentials && configurationError === null;
 export const supabaseConfigurationError = configurationError;
 export const supabase = supabaseClient;
+
+if (typeof window !== 'undefined') {
+  (window as any).__supabase = supabase;
+}
