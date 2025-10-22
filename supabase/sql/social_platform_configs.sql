@@ -58,13 +58,6 @@ create policy insupd_team_configs on public.social_platform_configs
 
 -- Deny selecting secrets from base table by default (no explicit select policy beyond the above)
 -- If you need the base table selectable by authenticated users, avoid exposing client_secret.
-
--- View policies (safe columns only)
-alter table public.social_platform_configs_public enable row level security;
-drop policy if exists sel_team_configs_public on public.social_platform_configs_public;
-create policy sel_team_configs_public on public.social_platform_configs_public
-  for select to authenticated
-  using (public.user_belongs_to_team(team_id));
+grant select on public.social_platform_configs_public to authenticated;
 
 -- Note: Edge functions with service role may read client_secret from the base table server-side.
-
