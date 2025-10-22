@@ -21,11 +21,8 @@ interface SavedPost {
 }
 
 type SocialSettings = {
-  sprinklr?: {
-    profileIds?: string;
-    limit?: number;
-    notes?: string;
-  };
+  integrations?: any[];
+  notes?: string;
 };
 
 const formatDate = (value: string) =>
@@ -38,9 +35,7 @@ const formatDate = (value: string) =>
   }).format(new Date(value));
 
 const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) => {
-  const [feedPosts, setFeedPosts] = useState<any[]>([]);
-  const [feedLoading, setFeedLoading] = useState(false);
-  const [feedError, setFeedError] = useState<string | null>(null);
+  // Sprinklr feed UI removed
 
   const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
 
@@ -48,8 +43,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const { showToast } = useNotification();
-  const [testing, setTesting] = useState<Record<string, boolean>>({});
-  const [testResults, setTestResults] = useState<Record<string, 'ok' | 'error'>>({});
+  // No external connection testing from client
 
   const availableCampaigns = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
@@ -57,13 +51,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
     return active.length > 0 ? active : campaigns;
   }, [campaigns]);
 
-  const sprinklrProfileIds = useMemo(() => {
-    const csv = settings?.sprinklr?.profileIds ?? '';
-    return csv
-      .split(',')
-      .map((id) => id.trim())
-      .filter(Boolean);
-  }, [settings?.sprinklr?.profileIds]);
+  // No Sprinklr profile IDs; teams define integrations below.
 
   const loadSavedPosts = async () => {
     const { data } = await supabase
@@ -105,61 +93,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
     load();
   }, [teamId]);
 
-  const loadFeedPosts = async () => {
-    try {
-      setFeedLoading(true);
-      setFeedError(null);
-
-      const profileIds = sprinklrProfileIds;
-      if (!profileIds.length) {
-        throw new Error('Provide at least one Sprinklr profile ID in Social API Settings.');
-      }
-
-      const limitRaw = Number(settings?.sprinklr?.limit ?? 5);
-      const limit = Number.isNaN(limitRaw) ? 5 : Math.min(Math.max(limitRaw, 1), 50);
-
-      const res = await fetch(`/api/sprinklr`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileIds, limit }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        try {
-          const j = JSON.parse(text);
-          throw new Error(j?.error || `Sprinklr feed fetch failed: ${res.status}`);
-        } catch {
-          throw new Error(text || `Sprinklr feed fetch failed: ${res.status}`);
-        }
-      }
-      const json = await res.json();
-      const fetched = Array.isArray(json.posts) ? json.posts : [];
-      setFeedPosts(fetched);
-
-      const minimal = fetched
-        .map((p: any) => ({
-          url: p.url || '',
-          network: p.network || 'Sprinklr',
-          title: p.title || null,
-          published_at: p.published_at || null,
-          team_id: teamId,
-        }))
-        .filter((p: any) => p.url);
-
-      if (minimal.length > 0) {
-        await supabase
-          .from('social_posts')
-          .upsert(minimal, { onConflict: 'team_id,url', ignoreDuplicates: true });
-        await loadSavedPosts();
-      }
-    } catch (e: any) {
-      setFeedError(e.message || 'Failed to load Sprinklr feeds');
-      showToast(e.message || 'Failed to load Sprinklr feeds', 'error');
-    } finally {
-      setFeedLoading(false);
-    }
-  };
+  // Sprinklr feed loader removed.
 
   const saveSettings = async () => {
     try {
@@ -188,28 +122,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
     }
   };
 
-  const testSprinklr = async () => {
-    const profileIds = sprinklrProfileIds;
-    if (!profileIds.length) throw new Error('Enter at least one Sprinklr profile ID to test.');
-
-    const res = await fetch(`/api/sprinklr`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profileIds, limit: 1 }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      try {
-        const j = JSON.parse(text);
-        throw new Error(j?.error || `Sprinklr test failed: ${res.status}`);
-      } catch {
-        throw new Error(text || `Sprinklr test failed: ${res.status}`);
-      }
-    }
-    const json = await res.json();
-    const count = Array.isArray(json.posts) ? json.posts.length : 0;
-    showToast(`Sprinklr OK (${count} item${count === 1 ? '' : 's'})`, 'success');
-  };
+  // Test function removed with Sprinklr integration.
 
   const assignCampaign = async (postId: number, campaignId: number | null) => {
     const { error } = await supabase
@@ -229,96 +142,44 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
       {role === 'chief' && (
         <section className="bg-white dark:bg-navy-800 p-6 rounded-lg shadow-md dark:shadow-2xl dark:shadow-navy-950/50">
           <div className="mb-4">
-            <h3 className="text-xl font-semibold text-navy-900 dark:text-white">Sprinklr Feed Settings</h3>
-            <p className="text-sm text-gray-600 dark:text-navy-300">Profile IDs entered here are saved in Supabase for your team. Sprinklr client credentials remain in environment variables on the server.</p>
-          </div>
-          <div className="mb-4 text-sm text-gray-700 dark:text-navy-200">
-            <div className="font-semibold mb-1">Configured Sprinklr profile IDs:</div>
-            {sprinklrProfileIds.length > 0 ? (
-              <ul className="list-disc pl-5 space-y-1">
-                {sprinklrProfileIds.map((id) => (
-                  <li key={id}>{id}</li>
-                ))}
-              </ul>
-            ) : (
-              <p>None configured yet. Add at least one profile ID below.</p>
-            )}
+            <h3 className="text-xl font-semibold text-navy-900 dark:text-white">Team Social Integrations</h3>
+            <p className="text-sm text-gray-600 dark:text-navy-300">Define API configurations for your team here. These settings are saved in Supabase and scoped to your team.</p>
           </div>
           {settingsError && <p className="mb-3 text-sm text-red-600 dark:text-red-300">{settingsError}</p>}
           <div className="space-y-4">
             <div className="rounded-md border border-gray-200 p-4 dark:border-navy-700">
-              <div className="font-semibold text-navy-900 dark:text-white mb-2">Sprinklr connection</div>
-              <p className="text-xs text-gray-600 dark:text-navy-300 mb-3">
-                Enter the Sprinklr profile IDs you want to monitor. Credentials (client ID/secret) live in the environment variables, so only IDs are required here.
-              </p>
-              <label className="block mb-3 text-sm">
-                <span className="text-navy-900 dark:text-navy-100">Profile IDs (comma separated)</span>
-                <textarea
-                  className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white"
-                  rows={3}
-                  value={settings?.sprinklr?.profileIds || ''}
-                  onChange={(e) =>
-                    setSettings((s) => ({
-                      ...(s || {}),
-                      sprinklr: { ...(s?.sprinklr || {}), profileIds: e.target.value },
-                    }))
+              <div className="font-semibold text-navy-900 dark:text-white mb-2">Integrations JSON</div>
+              <p className="text-xs text-gray-600 dark:text-navy-300 mb-3">Store one or more API configurations. Example: [{"name":"My API","baseUrl":"https://api.example.com"}].</p>
+              <textarea
+                className="w-full h-48 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white font-mono"
+                value={JSON.stringify(settings?.integrations ?? [], null, 2)}
+                onChange={(e) => {
+                  try {
+                    const parsed = JSON.parse(e.target.value);
+                    if (!Array.isArray(parsed)) throw new Error('Must be a JSON array');
+                    setSettings((s) => ({ ...(s || {}), integrations: parsed }));
+                    setSettingsError(null);
+                  } catch (err: any) {
+                    setSettingsError(err.message || 'Invalid JSON');
                   }
-                  placeholder="abc123, def456, ..."
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="text-navy-900 dark:text-navy-100">Max posts to fetch</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  className="mt-1 w-32 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white"
-                  value={settings?.sprinklr?.limit ?? 5}
-                  onChange={(e) => {
-                    const next = Number(e.target.value);
-                    setSettings((s) => ({
-                      ...(s || {}),
-                      sprinklr: {
-                        ...(s?.sprinklr || {}),
-                        limit: Number.isNaN(next) ? 5 : Math.min(Math.max(next, 1), 50),
-                      },
-                    }));
-                  }}
-                />
-              </label>
-              <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={() => runTest('sprinklr', testSprinklr)}
-                  disabled={!!testing.sprinklr}
-                  className="rounded-md px-3 py-1 text-xs font-semibold text-white bg-usace-blue hover:bg-navy-800"
-                >
-                  {testing.sprinklr ? 'Testing…' : 'Test connection'}
-                </button>
-                {testResults.sprinklr === 'ok' && <span className="ml-2 text-xs text-green-600 dark:text-green-300">✓ OK</span>}
-                {testResults.sprinklr === 'error' && <span className="ml-2 text-xs text-red-600 dark:text-red-300">Error</span>}
-              </div>
+                }}
+              />
             </div>
             <div className="rounded-md border border-gray-200 p-4 dark:border-navy-700">
               <div className="font-semibold text-navy-900 dark:text-white mb-2">Internal notes</div>
-              <p className="text-xs text-gray-600 dark:text-navy-300 mb-3">Optional notes for your team (e.g., which Sprinklr workspace the profile IDs belong to).</p>
+              <p className="text-xs text-gray-600 dark:text-navy-300 mb-3">Optional notes for your team (e.g., ownership, usage tips).</p>
               <textarea
                 className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800 dark:text-white"
                 rows={3}
-                value={settings?.sprinklr?.notes || ''}
-                onChange={(e) =>
-                  setSettings((s) => ({
-                    ...(s || {}),
-                    sprinklr: { ...(s?.sprinklr || {}), notes: e.target.value },
-                  }))
-                }
-                placeholder="Workspace: HQ Social | Owner: Public Affairs"
+                value={settings?.notes || ''}
+                onChange={(e) => setSettings((s) => ({ ...(s || {}), notes: e.target.value }))}
+                placeholder="Owner: Public Affairs | Contacts: ..."
               />
             </div>
           </div>
           <div className="mt-4">
             <button onClick={saveSettings} className="rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue">Save settings</button>
-            {settingsLoading && <span className="ml-3 text-sm text-gray-500 dark:text-navy-300">Loading…</span>}
+            {settingsLoading && <span className="ml-3 text-sm text-gray-500 dark:text-navy-300">Loadingâ€¦</span>}
           </div>
         </section>
       )}
@@ -348,7 +209,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
             <tbody className="divide-y divide-gray-200 dark:divide-navy-700">
               {savedPosts.map((post) => (
                 <tr key={post.id} className="hover:bg-navy-50/60 dark:hover:bg-navy-900/50">
-                  <td className="px-4 py-3 text-sm font-medium text-navy-900 dark:text-white">{post.network || '—'}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-navy-900 dark:text-white">{post.network || 'â€”'}</td>
                   <td className="px-4 py-3 text-sm text-navy-800 dark:text-navy-100">{post.title || '(untitled)'}</td>
                   <td className="px-4 py-3 text-sm">
                     <a href={post.url} target="_blank" rel="noreferrer" className="text-usace-blue hover:underline">
@@ -356,7 +217,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
                     </a>
                   </td>
                   <td className="px-4 py-3 text-sm text-navy-800 dark:text-navy-100">
-                    {post.published_at ? formatDate(post.published_at) : '—'}
+                    {post.published_at ? formatDate(post.published_at) : 'â€”'}
                   </td>
                   <td className="px-4 py-3 text-sm text-navy-800 dark:text-navy-100">
                     <select
@@ -395,7 +256,7 @@ const SocialMedia: React.FC<SocialMediaProps> = ({ role, campaigns, teamId }) =>
             disabled={feedLoading}
             className="rounded-md px-4 py-2 text-sm font-semibold text-white bg-usace-blue hover:bg-navy-800 focus:outline-none focus:ring-2 focus:ring-usace-blue"
           >
-            {feedLoading ? 'Loading…' : 'Load feeds'}
+            {feedLoading ? 'Loadingâ€¦' : 'Load feeds'}
           </button>
         </div>
         {feedError && <p className="mt-3 text-sm text-red-600 dark:text-red-300">{feedError}</p>}
