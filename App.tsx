@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const lastUserIdRef = useRef<string | null>(null);
+  const loadingSinceRef = useRef<number | null>(null);
   const { theme, toggleTheme } = useTheme();
   const { showToast } = useNotification();
 
@@ -161,6 +162,7 @@ const App: React.FC = () => {
 
     // Start in a loading state and use both immediate getSession and the auth listener (first wins)
     setIsLoading(true);
+    loadingSinceRef.current = Date.now();
     (async () => {
       try {
         const { data } = await supabase.auth.getSession();
@@ -232,6 +234,7 @@ const App: React.FC = () => {
       }
 
       setIsLoading(true);
+      loadingSinceRef.current = Date.now();
       try {
         await handleSession(session ?? null);
       } catch (e) {
@@ -251,13 +254,25 @@ const App: React.FC = () => {
       if (document.visibilityState === 'visible') {
         if (isMounted && (isLoading || !session || !profile)) {
           setIsLoading(true);
+          loadingSinceRef.current = Date.now();
           void fallbackInit();
         }
       }
     };
 
+    const onFocus = () => {
+      if (isMounted && (isLoading || !session || !profile)) {
+        setIsLoading(true);
+        loadingSinceRef.current = Date.now();
+        void fallbackInit();
+      }
+    };
+
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
       document.addEventListener('visibilitychange', onVisibility);
+    }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('focus', onFocus);
     }
 
     return () => {
@@ -269,6 +284,9 @@ const App: React.FC = () => {
         document.removeEventListener('visibilitychange', onVisibility);
       }
       subscription.unsubscribe();
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('focus', onFocus);
+      }
     };
   }, [fetchKpiData, fetchCampaigns, fetchGoals, showToast]);
 
