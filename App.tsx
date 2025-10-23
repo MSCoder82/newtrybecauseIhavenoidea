@@ -341,8 +341,14 @@ const App: React.FC = () => {
     return <Spinner />;
   }
 
-  if (!session || !profile) {
+  // If there is no session, show Auth
+  if (!session) {
     return <Auth />;
+  }
+
+  // If session exists but profile hasn't been resolved yet, keep showing a spinner
+  if (!profile) {
+    return <Spinner />;
   }
 
   return (
