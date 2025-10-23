@@ -79,6 +79,7 @@ const App: React.FC = () => {
     // Central auth lifecycle handler: initial load, login, logout, refresh.
     let isMounted = true;
     let initTimeout: number | null = null;
+    let gotInitialEvent = false;
 
     const handleSession = async (session: Session | null, options: { fetchData?: boolean } = {}) => {
       if (!isMounted) {
@@ -146,13 +147,24 @@ const App: React.FC = () => {
       }
     };
 
+    const fallbackInit = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        await handleSession(data?.session ?? null);
+      } catch (e) {
+        console.error('Fallback session init failed:', e);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
     // Start in a loading state and rely on the auth listener (INITIAL_SESSION)
     setIsLoading(true);
     // Safety: ensure we never get stuck showing the spinner
     if (typeof window !== 'undefined') {
       initTimeout = window.setTimeout(() => {
-        if (isMounted) {
-          setIsLoading(false);
+        if (isMounted && !gotInitialEvent) {
+          void fallbackInit();
         }
       }, 5000);
     }
@@ -167,6 +179,7 @@ const App: React.FC = () => {
         return;
       }
 
+      gotInitialEvent = true;
       const sameUser = session?.user?.id && session.user.id === lastUserIdRef.current;
 
       // Silent updates shouldn't toggle the global loading spinner
@@ -217,10 +230,26 @@ const App: React.FC = () => {
       }
     });
 
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        if (isMounted && (isLoading || !session || !profile)) {
+          setIsLoading(true);
+          void fallbackInit();
+        }
+      }
+    };
+
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', onVisibility);
+    }
+
     return () => {
       isMounted = false;
       if (initTimeout) {
         clearTimeout(initTimeout);
+      }
+      if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+        document.removeEventListener('visibilitychange', onVisibility);
       }
       subscription.unsubscribe();
     };
