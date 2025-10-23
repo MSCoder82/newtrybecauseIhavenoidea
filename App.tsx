@@ -76,8 +76,9 @@ const App: React.FC = () => {
   }, [showToast]);
 
   useEffect(() => {
-    // This listener handles the entire auth lifecycle: initial load, login, and logout.
+    // Central auth lifecycle handler: initial load, login, logout, refresh.
     let isMounted = true;
+    let initTimeout: number | null = null;
 
     const handleSession = async (session: Session | null, options: { fetchData?: boolean } = {}) => {
       if (!isMounted) {
@@ -145,33 +146,16 @@ const App: React.FC = () => {
       }
     };
 
-    const initializeSession = async () => {
-      setIsLoading(true);
-      try {
-        const { data, error } = await supabase.auth.getSession();
-
-        if (!isMounted) {
-          return;
-        }
-
-        if (error) {
-          console.error('Error retrieving auth session:', error);
-        }
-
-        await handleSession(data?.session ?? null);
-      } catch (e) {
-        console.error('Unhandled error during session initialization:', e);
-        try {
-          showToast('Failed to initialize session. Please refresh or sign in again.', 'error');
-        } catch {}
-      } finally {
+    // Start in a loading state and rely on the auth listener (INITIAL_SESSION)
+    setIsLoading(true);
+    // Safety: ensure we never get stuck showing the spinner
+    if (typeof window !== 'undefined') {
+      initTimeout = window.setTimeout(() => {
         if (isMounted) {
           setIsLoading(false);
         }
-      }
-    };
-
-    initializeSession();
+      }, 5000);
+    }
 
     const handledEvents: AuthChangeEvent[] = ['SIGNED_IN', 'SIGNED_OUT', 'USER_UPDATED'];
     const silentEvents: AuthChangeEvent[] = ['TOKEN_REFRESHED'];
@@ -196,6 +180,19 @@ const App: React.FC = () => {
       }
 
       if (event === 'INITIAL_SESSION') {
+        try {
+          await handleSession(session ?? null);
+        } catch (e) {
+          console.error('Unhandled error during initial session handling:', e);
+        } finally {
+          if (initTimeout) {
+            clearTimeout(initTimeout);
+            initTimeout = null;
+          }
+          if (isMounted) {
+            setIsLoading(false);
+          }
+        }
         return;
       }
 
@@ -220,6 +217,9 @@ const App: React.FC = () => {
 
     return () => {
       isMounted = false;
+      if (initTimeout) {
+        clearTimeout(initTimeout);
+      }
       subscription.unsubscribe();
     };
   }, [fetchKpiData, fetchCampaigns, fetchGoals, showToast]);
