@@ -80,6 +80,7 @@ const App: React.FC = () => {
     let isMounted = true;
     let initTimeout: number | null = null;
     let gotInitialEvent = false;
+    let bootstrapped = false;
 
     const handleSession = async (session: Session | null, options: { fetchData?: boolean } = {}) => {
       if (!isMounted) {
@@ -158,8 +159,22 @@ const App: React.FC = () => {
       }
     };
 
-    // Start in a loading state and rely on the auth listener (INITIAL_SESSION)
+    // Start in a loading state and use both immediate getSession and the auth listener (first wins)
     setIsLoading(true);
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!isMounted || bootstrapped) return;
+        await handleSession(data?.session ?? null);
+      } catch (e) {
+        console.error('Immediate session init failed:', e);
+      } finally {
+        if (isMounted && !bootstrapped) {
+          setIsLoading(false);
+          bootstrapped = true;
+        }
+      }
+    })();
     // Safety: ensure we never get stuck showing the spinner
     if (typeof window !== 'undefined') {
       initTimeout = window.setTimeout(() => {
@@ -204,8 +219,9 @@ const App: React.FC = () => {
             clearTimeout(initTimeout);
             initTimeout = null;
           }
-          if (isMounted) {
+          if (isMounted && !bootstrapped) {
             setIsLoading(false);
+            bootstrapped = true;
           }
         }
         return;
@@ -226,6 +242,7 @@ const App: React.FC = () => {
       } finally {
         if (isMounted) {
           setIsLoading(false);
+          bootstrapped = true;
         }
       }
     });
