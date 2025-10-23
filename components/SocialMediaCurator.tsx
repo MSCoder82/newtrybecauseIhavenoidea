@@ -90,7 +90,8 @@ const createPlatformConfigs = (): PlatformConfig[] => [
     label: 'LinkedIn',
     color: 'bg-sky-600',
     icon: 'in',
-    scopes: 'r_liteprofile r_organization_social w_organization_social',
+    // Only request read scopes; write scope is restricted and not needed for fetching
+    scopes: 'r_liteprofile r_organization_social',
     description: 'Register a LinkedIn Marketing Developer application with the scopes above.',
   },
 ]
@@ -151,7 +152,7 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
     linkedin: {
       auth_url: 'https://www.linkedin.com/oauth/v2/authorization',
       token_url: 'https://www.linkedin.com/oauth/v2/accessToken',
-      scopes: PLATFORM_MAP.linkedin.scopes, // r_liteprofile r_organization_social w_organization_social
+      scopes: PLATFORM_MAP.linkedin.scopes, // r_liteprofile r_organization_social
       redirect_uri: DEFAULT_REDIRECT_URI,
     },
   }
