@@ -170,7 +170,9 @@ const App: React.FC = () => {
       const sameUser = session?.user?.id && session.user.id === lastUserIdRef.current;
 
       // Silent updates shouldn't toggle the global loading spinner
-      if (silentEvents.includes(event) || (sameUser && (event === 'SIGNED_IN' || event === 'USER_UPDATED'))) {
+      // Only treat TOKEN_REFRESHED and same-user USER_UPDATED as silent.
+      // SIGNED_IN must not be silent (even if same user), so we fetch profile/data.
+      if (silentEvents.includes(event) || (sameUser && event === 'USER_UPDATED')) {
         try {
           await handleSession(session, { fetchData: false });
         } catch (e) {
