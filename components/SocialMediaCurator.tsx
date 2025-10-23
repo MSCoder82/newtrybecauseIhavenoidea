@@ -125,22 +125,52 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
   const [showSetup, setShowSetup] = useState(false)
   const [isHydrating, setIsHydrating] = useState(false)
   const [isProcessingOAuth, setIsProcessingOAuth] = useState(false)
+  const DEFAULT_REDIRECT_URI = 'https://newtrybecause-ihavenoidea.vercel.app'
+
+  // Reasonable, provider-documented defaults per platform
+  const PLATFORM_DEFAULTS: Record<PlatformKey, Required<Pick<PublicPlatformConfig,
+    'auth_url' | 'token_url' | 'scopes' | 'redirect_uri'>>> = {
+    youtube: {
+      auth_url: 'https://accounts.google.com/o/oauth2/v2/auth',
+      token_url: 'https://oauth2.googleapis.com/token',
+      scopes: PLATFORM_MAP.youtube.scopes, // https://www.googleapis.com/auth/youtube.readonly
+      redirect_uri: DEFAULT_REDIRECT_URI,
+    },
+    facebook: {
+      auth_url: 'https://www.facebook.com/v18.0/dialog/oauth',
+      token_url: 'https://graph.facebook.com/v18.0/oauth/access_token',
+      scopes: PLATFORM_MAP.facebook.scopes, // pages_show_list,pages_read_engagement,pages_read_user_content
+      redirect_uri: DEFAULT_REDIRECT_URI,
+    },
+    instagram: {
+      auth_url: 'https://www.facebook.com/v18.0/dialog/oauth',
+      token_url: 'https://graph.facebook.com/v18.0/oauth/access_token',
+      scopes: PLATFORM_MAP.instagram.scopes, // instagram_basic,instagram_content_publish
+      redirect_uri: DEFAULT_REDIRECT_URI,
+    },
+    linkedin: {
+      auth_url: 'https://www.linkedin.com/oauth/v2/authorization',
+      token_url: 'https://www.linkedin.com/oauth/v2/accessToken',
+      scopes: PLATFORM_MAP.linkedin.scopes, // r_liteprofile r_organization_social w_organization_social
+      redirect_uri: DEFAULT_REDIRECT_URI,
+    },
+  }
+
   const [configs, setConfigs] = useState<Record<PlatformKey, PublicPlatformConfig>>({
-    youtube: {},
-    facebook: {},
-    instagram: {},
-    linkedin: {},
+    youtube: { ...PLATFORM_DEFAULTS.youtube },
+    facebook: { ...PLATFORM_DEFAULTS.facebook },
+    instagram: { ...PLATFORM_DEFAULTS.instagram },
+    linkedin: { ...PLATFORM_DEFAULTS.linkedin },
   })
   const [configForm, setConfigForm] = useState<PublicPlatformConfig & { client_secret?: string }>({})
   const [configPlatform, setConfigPlatform] = useState<PlatformKey>('youtube')
   const [configSaving, setConfigSaving] = useState(false)
 
   const redirectUri = useMemo(() => {
-    if (typeof window === 'undefined') return ''
-    // Prefer stored per-team config if available for the selected platform
-    const cfg = selectedPlatform ? configs[selectedPlatform as PlatformKey] : undefined
-    return (cfg?.redirect_uri as string | undefined) || import.meta.env.VITE_SOCIAL_OAUTH_REDIRECT_URI || window.location.origin
-  }, [selectedPlatform, configs])
+    if (!selectedPlatform) return DEFAULT_REDIRECT_URI
+    // Always use our constant per user request
+    return PLATFORM_DEFAULTS[selectedPlatform].redirect_uri
+  }, [selectedPlatform])
 
   const buildAuthUrl = useCallback(
     (platform: PlatformKey, state: string) => {
@@ -232,7 +262,49 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
     try {
       const { data, error } = await invokeFunction<{ success?: boolean; configs?: Record<PlatformKey, PublicPlatformConfig> }>('get-social-config')
       if (error) throw new Error(error.message)
-      if (data?.configs) setConfigs(data.configs)
+      if (data?.configs) {
+        // Merge server configs with our enforced defaults for URL/scope/redirect
+        const merged: Record<PlatformKey, PublicPlatformConfig> = {
+          youtube: { ...PLATFORM_DEFAULTS.youtube, ...(data.configs.youtube || {}) },
+          facebook: { ...PLATFORM_DEFAULTS.facebook, ...(data.configs.facebook || {}) },
+          instagram: { ...PLATFORM_DEFAULTS.instagram, ...(data.configs.instagram || {}) },
+          linkedin: { ...PLATFORM_DEFAULTS.linkedin, ...(data.configs.linkedin || {}) },
+        }
+        setConfigs(merged)
+
+        // Persist enforced defaults to Supabase per team so tables are populated
+        const platformsToCheck: PlatformKey[] = ['youtube', 'facebook', 'instagram', 'linkedin']
+        const persistPromises = platformsToCheck.map((key) => {
+          const serverCfg = (data.configs as any)?.[key] as PublicPlatformConfig | undefined
+          const def = PLATFORM_DEFAULTS[key]
+          const needsPersist =
+            !serverCfg ||
+            serverCfg.auth_url !== def.auth_url ||
+            serverCfg.token_url !== def.token_url ||
+            (serverCfg.scopes || '') !== (def.scopes || '') ||
+            serverCfg.redirect_uri !== def.redirect_uri
+
+          if (!needsPersist) return null
+
+          return invokeFunction('save-social-config', {
+            body: {
+              platform: key,
+              auth_url: def.auth_url,
+              token_url: def.token_url,
+              scopes: def.scopes,
+              redirect_uri: def.redirect_uri,
+            },
+          })
+        }).filter(Boolean) as Promise<any>[]
+
+        if (persistPromises.length > 0) {
+          try {
+            await Promise.allSettled(persistPromises)
+          } catch (e) {
+            console.warn('Failed to persist platform defaults to Supabase', e)
+          }
+        }
+      }
     } catch (err) {
       console.warn('Failed to load platform configs', err)
     }
@@ -241,7 +313,18 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
   const savePlatformConfig = useCallback(async () => {
     try {
       setConfigSaving(true)
-      const body: Record<string, any> = { platform: configPlatform, ...configForm }
+      // Always persist provider defaults for URLs/scopes/redirect
+      const enforced = PLATFORM_DEFAULTS[configPlatform]
+      const body: Record<string, any> = {
+        platform: configPlatform,
+        auth_url: enforced.auth_url,
+        token_url: enforced.token_url,
+        scopes: enforced.scopes,
+        redirect_uri: enforced.redirect_uri,
+        // Allow only client_id and client_secret to be user-provided
+        ...(configForm.client_id ? { client_id: configForm.client_id } : {}),
+        ...(configForm.client_secret ? { client_secret: configForm.client_secret } : {}),
+      }
       const { error } = await invokeFunction('save-social-config', { body })
       if (error) throw new Error(error.message)
       showToast('Platform configuration saved', 'success')
@@ -674,47 +757,41 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
           <div>
             <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Auth URL</label>
             <input
-              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
-              placeholder={
-                configPlatform === 'linkedin'
-                  ? 'https://www.linkedin.com/oauth/v2/authorization'
-                  : configPlatform === 'youtube'
-                  ? 'https://accounts.google.com/o/oauth2/v2/auth'
-                  : 'https://www.facebook.com/v18.0/dialog/oauth'
-              }
-              value={configForm.auth_url ?? ''}
-              onChange={(e) => setConfigForm((f) => ({ ...f, auth_url: e.target.value }))}
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-gray-100 dark:bg-navy-800 px-3 py-2 text-gray-900 dark:text-white"
+              value={PLATFORM_DEFAULTS[configPlatform].auth_url}
+              readOnly
+              disabled
+              title="Managed by system"
             />
           </div>
           <div>
             <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Token URL</label>
             <input
-              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
-              placeholder={
-                configPlatform === 'linkedin'
-                  ? 'https://www.linkedin.com/oauth/v2/accessToken'
-                  : 'https://graph.facebook.com/v18.0/oauth/access_token'
-              }
-              value={configForm.token_url ?? ''}
-              onChange={(e) => setConfigForm((f) => ({ ...f, token_url: e.target.value }))}
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-gray-100 dark:bg-navy-800 px-3 py-2 text-gray-900 dark:text-white"
+              value={PLATFORM_DEFAULTS[configPlatform].token_url}
+              readOnly
+              disabled
+              title="Managed by system"
             />
           </div>
           <div className="md:col-span-3">
-            <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Scopes (space- or comma-separated)</label>
+            <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Scopes</label>
             <input
-              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
-              placeholder={platforms.find((p) => p.id === configPlatform)?.scopes}
-              value={configForm.scopes ?? ''}
-              onChange={(e) => setConfigForm((f) => ({ ...f, scopes: e.target.value }))}
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-gray-100 dark:bg-navy-800 px-3 py-2 text-gray-900 dark:text-white"
+              value={PLATFORM_DEFAULTS[configPlatform].scopes || ''}
+              readOnly
+              disabled
+              title="Managed by system"
             />
           </div>
           <div className="md:col-span-2">
             <label className="block text-sm text-gray-600 dark:text-navy-300 mb-1">Redirect URI</label>
             <input
-              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-white dark:bg-navy-700 px-3 py-2 text-gray-900 dark:text-white"
-              placeholder={window?.location?.origin}
-              value={configForm.redirect_uri ?? ''}
-              onChange={(e) => setConfigForm((f) => ({ ...f, redirect_uri: e.target.value }))}
+              className="w-full rounded-md border border-gray-300 dark:border-navy-600 bg-gray-100 dark:bg-navy-800 px-3 py-2 text-gray-900 dark:text-white"
+              value={PLATFORM_DEFAULTS[configPlatform].redirect_uri}
+              readOnly
+              disabled
+              title="Managed by system"
             />
           </div>
         </div>
