@@ -252,7 +252,7 @@ const App: React.FC = () => {
 
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
-        if (isMounted && (isLoading || !session || !profile)) {
+        if (isMounted && (!session || !profile)) {
           setIsLoading(true);
           loadingSinceRef.current = Date.now();
           void fallbackInit();
@@ -261,7 +261,7 @@ const App: React.FC = () => {
     };
 
     const onFocus = () => {
-      if (isMounted && (isLoading || !session || !profile)) {
+      if (isMounted && (!session || !profile)) {
         setIsLoading(true);
         loadingSinceRef.current = Date.now();
         void fallbackInit();
