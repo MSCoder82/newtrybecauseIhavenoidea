@@ -26,9 +26,15 @@ const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const handleSessionRef = useRef<
+    (session: Session | null, options?: { fetchData?: boolean }) => Promise<void>
+  >();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const lastUserIdRef = useRef<string | null>(null);
   const loadingSinceRef = useRef<number | null>(null);
+  const sessionRef = useRef<Session | null>(null);
+  const profileRef = useRef<Profile | null>(null);
+  const sessionRestoreRef = useRef(false);
   const { theme, toggleTheme } = useTheme();
   const { showToast } = useNotification();
 
@@ -83,16 +89,34 @@ const App: React.FC = () => {
     let gotInitialEvent = false;
     let bootstrapped = false;
 
+    const beginLoading = () => {
+      if (!isMounted) {
+        return;
+      }
+      setIsLoading(true);
+      loadingSinceRef.current = Date.now();
+    };
+
+    const finishLoading = () => {
+      if (!isMounted) {
+        return;
+      }
+      setIsLoading(false);
+      loadingSinceRef.current = null;
+    };
+
     const handleSession = async (session: Session | null, options: { fetchData?: boolean } = {}) => {
       if (!isMounted) {
         return;
       }
 
       setSession(session);
+      sessionRef.current = session;
       lastUserIdRef.current = session?.user?.id ?? null;
 
       if (!session) {
         setProfile(null);
+        profileRef.current = null;
         setKpiData([]);
         setCampaigns([]);
         setGoals([]);
@@ -118,19 +142,27 @@ const App: React.FC = () => {
           throw error;
         }
 
-        if (data) {
-          setProfile({
-            role: (data.role as Role) || 'staff',
-            teamId: data.teams?.id ?? -1,
-            teamName: data.teams?.name ?? 'No Team',
-            avatarUrl: data.avatar_url,
-          });
-        } else {
-          setProfile({ role: 'staff', teamId: -1, teamName: 'Unknown Team' });
-        }
+        const nextProfile: Profile =
+          data
+            ? {
+                role: (data.role as Role) || 'staff',
+                teamId: data.teams?.id ?? -1,
+                teamName: data.teams?.name ?? 'No Team',
+                avatarUrl: data.avatar_url,
+              }
+            : { role: 'staff', teamId: -1, teamName: 'Unknown Team' };
 
-        // Fetch data after session and profile are confirmed
-        await Promise.all([fetchKpiData(), fetchCampaigns(), fetchGoals()]);
+        setProfile(nextProfile);
+        profileRef.current = nextProfile;
+
+        // Refresh dashboard data asynchronously; loading spinner should not block on these calls.
+        void (async () => {
+          try {
+            await Promise.all([fetchKpiData(), fetchCampaigns(), fetchGoals()]);
+          } catch (dashboardError) {
+            console.error('Error refreshing dashboard data after session change:', dashboardError);
+          }
+        })();
       } catch (error) {
         if (!isMounted) {
           return;
@@ -145,24 +177,31 @@ const App: React.FC = () => {
         } else {
           showToast('Error fetching user profile.', 'error');
         }
-        setProfile({ role: 'staff', teamId: -1, teamName: 'Error' });
+        const fallbackProfile: Profile = { role: 'staff', teamId: -1, teamName: 'Error' };
+        setProfile(fallbackProfile);
+        profileRef.current = fallbackProfile;
       }
     };
+    handleSessionRef.current = handleSession;
 
     const fallbackInit = async () => {
+      if (sessionRestoreRef.current) {
+        return;
+      }
+      sessionRestoreRef.current = true;
       try {
         const { data } = await supabase.auth.getSession();
         await handleSession(data?.session ?? null);
       } catch (e) {
         console.error('Fallback session init failed:', e);
       } finally {
-        if (isMounted) setIsLoading(false);
+        finishLoading();
       }
+      sessionRestoreRef.current = false;
     };
 
     // Start in a loading state and use both immediate getSession and the auth listener (first wins)
-    setIsLoading(true);
-    loadingSinceRef.current = Date.now();
+    beginLoading();
     (async () => {
       try {
         const { data } = await supabase.auth.getSession();
@@ -172,7 +211,7 @@ const App: React.FC = () => {
         console.error('Immediate session init failed:', e);
       } finally {
         if (isMounted && !bootstrapped) {
-          setIsLoading(false);
+          finishLoading();
           bootstrapped = true;
         }
       }
@@ -222,7 +261,7 @@ const App: React.FC = () => {
             initTimeout = null;
           }
           if (isMounted && !bootstrapped) {
-            setIsLoading(false);
+            finishLoading();
             bootstrapped = true;
           }
         }
@@ -233,8 +272,7 @@ const App: React.FC = () => {
         return;
       }
 
-      setIsLoading(true);
-      loadingSinceRef.current = Date.now();
+      beginLoading();
       try {
         await handleSession(session ?? null);
       } catch (e) {
@@ -244,28 +282,53 @@ const App: React.FC = () => {
         } catch {}
       } finally {
         if (isMounted) {
-          setIsLoading(false);
+          finishLoading();
           bootstrapped = true;
         }
       }
     });
 
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        if (isMounted && (!session || !profile)) {
-          setIsLoading(true);
-          loadingSinceRef.current = Date.now();
-          void fallbackInit();
+    const refreshSessionSilently = async () => {
+      if (sessionRestoreRef.current) {
+        return;
+      }
+      sessionRestoreRef.current = true;
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (handleSessionRef.current) {
+          await handleSessionRef.current(data?.session ?? null, { fetchData: false });
         }
+      } catch (error) {
+        console.error('Silent session refresh failed:', error);
+      } finally {
+        sessionRestoreRef.current = false;
       }
     };
 
-    const onFocus = () => {
-      if (isMounted && (!session || !profile)) {
-        setIsLoading(true);
-        loadingSinceRef.current = Date.now();
-        void fallbackInit();
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible' || !isMounted) {
+        return;
       }
+
+      if (!sessionRef.current || !profileRef.current) {
+        void fallbackInit();
+        return;
+      }
+
+      void refreshSessionSilently();
+    };
+
+    const onFocus = () => {
+      if (!isMounted) {
+        return;
+      }
+
+      if (!sessionRef.current || !profileRef.current) {
+        void fallbackInit();
+        return;
+      }
+
+      void refreshSessionSilently();
     };
 
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
@@ -289,6 +352,57 @@ const App: React.FC = () => {
       }
     };
   }, [fetchKpiData, fetchCampaigns, fetchGoals, showToast]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    let cancelled = false;
+
+    const watchdog = window.setTimeout(() => {
+      const startedAt = loadingSinceRef.current;
+      if (!startedAt) {
+        return;
+      }
+
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 8000) {
+        return;
+      }
+
+      console.warn(
+        `Global loading spinner active for ${elapsed}ms; attempting emergency session refresh.`,
+      );
+
+      const refreshSession = async () => {
+        try {
+          const { data } = await supabase.auth.getSession();
+          if (handleSessionRef.current) {
+            await handleSessionRef.current(data?.session ?? null);
+          }
+        } catch (error) {
+          console.error('Emergency session refresh failed:', error);
+        } finally {
+          if (!cancelled) {
+            setIsLoading(false);
+            loadingSinceRef.current = null;
+          }
+        }
+      };
+
+      void refreshSession();
+    }, 8000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(watchdog);
+    };
+  }, [isLoading]);
 
 
   const addKpiDataPoint = useCallback(async (newDataPoint: Omit<KpiDataPoint, 'id'>) => {
@@ -350,7 +464,9 @@ const App: React.FC = () => {
   const onProfileUpdate = (updatedProfileData: Partial<Profile>) => {
     setProfile(prevProfile => {
         if (!prevProfile) return null;
-        return { ...prevProfile, ...updatedProfileData };
+        const nextProfile = { ...prevProfile, ...updatedProfileData };
+        profileRef.current = nextProfile;
+        return nextProfile;
     });
     showToast('Profile updated successfully!', 'success');
   };

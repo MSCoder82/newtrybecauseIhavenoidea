@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, SOCIAL_OAUTH_RESULT_KEY } from '../lib/supabase'
 import { useNotification } from '../contexts/NotificationProvider'
 
 type PlatformKey = 'youtube' | 'facebook' | 'instagram' | 'linkedin'
@@ -669,10 +669,22 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
+    let storedResult: { code?: string; state?: string; error?: string } | null = null
+    try {
+      const raw = window.sessionStorage?.getItem(SOCIAL_OAUTH_RESULT_KEY)
+      if (raw) {
+        storedResult = JSON.parse(raw)
+        window.sessionStorage.removeItem(SOCIAL_OAUTH_RESULT_KEY)
+      }
+    } catch (error) {
+      console.error('Failed to read stored social OAuth result:', error)
+    }
+
     const url = new URL(window.location.href)
-    const code = url.searchParams.get('code')
-    const state = url.searchParams.get('state')
-    const errorDescription = url.searchParams.get('error_description') || url.searchParams.get('error')
+    const code = storedResult?.code ?? url.searchParams.get('code') ?? undefined
+    const state = storedResult?.state ?? url.searchParams.get('state') ?? undefined
+    const errorDescription =
+      storedResult?.error ?? url.searchParams.get('error_description') ?? url.searchParams.get('error') ?? undefined
 
     const clearParams = () => {
       url.searchParams.delete('code')
@@ -691,6 +703,9 @@ const SocialMediaCurator: React.FC<SocialMediaCuratorProps> = ({ teamId }) => {
     }
 
     if (!code || !state || isProcessingOAuth) {
+      if (storedResult) {
+        clearParams()
+      }
       return
     }
 
