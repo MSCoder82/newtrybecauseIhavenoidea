@@ -110,6 +110,7 @@ const App: React.FC = () => {
         return;
       }
 
+      const previousUserId = lastUserIdRef.current;
       setSession(session);
       sessionRef.current = session;
       lastUserIdRef.current = session?.user?.id ?? null;
@@ -123,7 +124,12 @@ const App: React.FC = () => {
         return;
       }
 
-      if (options.fetchData === false) {
+      const sameUser = Boolean(session.user?.id && session.user.id === previousUserId);
+      const hasCachedProfile = Boolean(profileRef.current && sameUser);
+      if (options.fetchData === false && hasCachedProfile) {
+        if (profileRef.current) {
+          setProfile(profileRef.current);
+        }
         return;
       }
 
