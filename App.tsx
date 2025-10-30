@@ -127,9 +127,6 @@ const App: React.FC = () => {
       const sameUser = Boolean(session.user?.id && session.user.id === previousUserId);
       const hasCachedProfile = Boolean(profileRef.current && sameUser);
       if (options.fetchData === false && hasCachedProfile) {
-        if (profileRef.current) {
-          setProfile(profileRef.current);
-        }
         return;
       }
 
