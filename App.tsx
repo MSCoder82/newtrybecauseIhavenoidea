@@ -198,9 +198,11 @@ const App: React.FC = () => {
 
     const fallbackInit = async () => {
       if (sessionRestoreRef.current) {
+        finishLoading();
         return;
       }
       sessionRestoreRef.current = true;
+      beginLoading();
       try {
         const { data } = await supabase.auth.getSession();
         await handleSession(data?.session ?? null);
@@ -208,8 +210,8 @@ const App: React.FC = () => {
         console.error('Fallback session init failed:', e);
       } finally {
         finishLoading();
+        sessionRestoreRef.current = false;
       }
-      sessionRestoreRef.current = false;
     };
 
     // Start in a loading state and use both immediate getSession and the auth listener (first wins)
@@ -305,10 +307,11 @@ const App: React.FC = () => {
         return;
       }
 
-      if (!sessionRef.current || !profileRef.current) {
-        void fallbackInit();
+      if (sessionRef.current && profileRef.current) {
         return;
       }
+
+      void fallbackInit();
     };
 
     const onFocus = () => {
@@ -316,10 +319,11 @@ const App: React.FC = () => {
         return;
       }
 
-      if (!sessionRef.current || !profileRef.current) {
-        void fallbackInit();
+      if (sessionRef.current && profileRef.current) {
         return;
       }
+
+      void fallbackInit();
     };
 
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
