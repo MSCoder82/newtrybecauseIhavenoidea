@@ -111,7 +111,16 @@ const App: React.FC = () => {
       }
 
       const previousUserId = lastUserIdRef.current;
-      setSession(session);
+      const previousSession = sessionRef.current;
+      const sessionChanged =
+        (previousSession?.user?.id ?? null) !== (session?.user?.id ?? null) ||
+        previousSession?.access_token !== session?.access_token ||
+        previousSession?.refresh_token !== session?.refresh_token ||
+        previousSession?.expires_at !== session?.expires_at;
+
+      if (sessionChanged) {
+        setSession(session);
+      }
       sessionRef.current = session;
       lastUserIdRef.current = session?.user?.id ?? null;
 
@@ -291,23 +300,6 @@ const App: React.FC = () => {
       }
     });
 
-    const refreshSessionSilently = async () => {
-      if (sessionRestoreRef.current) {
-        return;
-      }
-      sessionRestoreRef.current = true;
-      try {
-        const { data } = await supabase.auth.getSession();
-        if (handleSessionRef.current) {
-          await handleSessionRef.current(data?.session ?? null, { fetchData: false });
-        }
-      } catch (error) {
-        console.error('Silent session refresh failed:', error);
-      } finally {
-        sessionRestoreRef.current = false;
-      }
-    };
-
     const onVisibility = () => {
       if (document.visibilityState !== 'visible' || !isMounted) {
         return;
@@ -317,8 +309,6 @@ const App: React.FC = () => {
         void fallbackInit();
         return;
       }
-
-      void refreshSessionSilently();
     };
 
     const onFocus = () => {
@@ -330,8 +320,6 @@ const App: React.FC = () => {
         void fallbackInit();
         return;
       }
-
-      void refreshSessionSilently();
     };
 
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
