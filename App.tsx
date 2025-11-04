@@ -119,6 +119,7 @@ const App: React.FC = () => {
         previousSession?.expires_at !== session?.expires_at;
 
       if (sessionChanged) {
+        try { console.debug('Auth: session changed', { hadPrev: Boolean(previousSession), hasNext: Boolean(session) }); } catch {}
         setSession(session);
       }
       sessionRef.current = session;
@@ -140,7 +141,8 @@ const App: React.FC = () => {
       }
 
       try {
-        const { data, error } = await supabase
+        // 1) Try to read profile normally
+        let { data: prof, error } = await supabase
           .from('profiles')
           .select('role, avatar_url, teams (id, name)')
           .eq('id', session.user.id)
@@ -150,20 +152,102 @@ const App: React.FC = () => {
           return;
         }
 
+        // 2) If not found, try to bootstrap from user metadata (team_id, role)
+        if (error && error.code === 'PGRST116') {
+          try { console.warn('No profile row; attempting bootstrap from user metadata'); } catch {}
+          const meta = (session.user as any)?.user_metadata || {};
+          const metaTeamRaw = meta.team_id ?? meta.teamId ?? meta.team;
+          const metaRoleRaw = (meta.role || meta.user_role || '').toString().toLowerCase();
+          const derivedTeamId = typeof metaTeamRaw === 'number' ? metaTeamRaw : parseInt(String(metaTeamRaw || ''), 10);
+          const derivedRole: Role = metaRoleRaw === 'chief' ? 'chief' : 'staff';
+
+          // Only attempt upsert if we have a plausible team id
+          const upsertPayload: Record<string, any> = { id: session.user.id, role: derivedRole };
+          if (!Number.isNaN(derivedTeamId) && Number.isFinite(derivedTeamId)) {
+            upsertPayload.team_id = derivedTeamId;
+          }
+
+          const { data: upserted, error: upsertErr } = await supabase
+            .from('profiles')
+            .upsert(upsertPayload, { onConflict: 'id' })
+            .select('role, avatar_url, teams (id, name)')
+            .single();
+
+          if (!upsertErr) {
+            prof = upserted as any;
+            error = null as any;
+          } else {
+            try { console.warn('Profile bootstrap upsert failed (RLS/schema?):', upsertErr?.message || upsertErr); } catch {}
+          }
+        }
+
         if (error && error.code !== 'PGRST116') {
           throw error;
         }
 
-        const nextProfile: Profile =
-          data
-            ? {
-                role: (data.role as Role) || 'staff',
-                teamId: data.teams?.id ?? -1,
-                teamName: data.teams?.name ?? 'No Team',
-                avatarUrl: data.avatar_url,
+        // 3) If we have a profile but it's missing fields and metadata has them, try to patch persistently
+        try {
+          const meta = (session.user as any)?.user_metadata || {};
+          const metaTeamRaw = meta.team_id ?? meta.teamId ?? meta.team;
+          const metaRoleRaw = (meta.role || meta.user_role || '').toString().toLowerCase();
+          const derivedTeamId = typeof metaTeamRaw === 'number' ? metaTeamRaw : parseInt(String(metaTeamRaw || ''), 10);
+          const derivedRole: Role | null = metaRoleRaw === 'chief' ? 'chief' : metaRoleRaw === 'staff' ? 'staff' : null;
+          if (prof && (derivedRole || (!Number.isNaN(derivedTeamId) && Number.isFinite(derivedTeamId)))) {
+            const currentRole = (prof as any)?.role || null;
+            const currentTeamId = (prof as any)?.team_id ?? (prof as any)?.teams?.id ?? null;
+            const patch: Record<string, any> = {};
+            if (derivedRole && derivedRole !== currentRole) patch.role = derivedRole;
+            if (!Number.isNaN(derivedTeamId) && Number.isFinite(derivedTeamId) && derivedTeamId !== currentTeamId) patch.team_id = derivedTeamId;
+            if (Object.keys(patch).length > 0) {
+              const { data: patched, error: patchErr } = await supabase
+                .from('profiles')
+                .update(patch)
+                .eq('id', session.user.id)
+                .select('role, avatar_url, teams (id, name)')
+                .single();
+              if (!patchErr && patched) {
+                prof = patched as any;
               }
-            : { role: 'staff', teamId: -1, teamName: 'Unknown Team' };
+            }
+          }
+        } catch {}
 
+        // 4) If still missing team info but metadata has it, compute team name directly
+        let teamId = prof?.teams?.id ?? -1;
+        let teamName = prof?.teams?.name ?? 'No Team';
+        if ((teamId === -1 || !teamName) && (session.user as any)?.user_metadata?.team_id) {
+          const metaTeam = (session.user as any).user_metadata.team_id;
+          const parsed = typeof metaTeam === 'number' ? metaTeam : parseInt(String(metaTeam), 10);
+          if (!Number.isNaN(parsed)) {
+            teamId = parsed;
+            // Try to fetch team name if teams table exists and is readable
+            try {
+              const { data: teamRow } = await supabase
+                .from('teams')
+                .select('name')
+                .eq('id', parsed)
+                .single();
+              teamName = (teamRow as any)?.name || teamName;
+            } catch {}
+          }
+        }
+
+        const nextProfile: Profile = prof
+          ? {
+              role: ((prof as any).role as Role) || 'staff',
+              teamId,
+              teamName,
+              avatarUrl: (prof as any).avatar_url,
+            }
+          : {
+              role: (((session.user as any)?.user_metadata?.role || '').toString().toLowerCase() === 'chief'
+                ? 'chief'
+                : 'staff') as Role,
+              teamId,
+              teamName: teamName || 'Unknown Team',
+            };
+
+        try { console.debug('Profile loaded'); } catch {}
         setProfile(nextProfile);
         profileRef.current = nextProfile;
 
@@ -184,12 +268,37 @@ const App: React.FC = () => {
         console.error(
           `Error fetching user profile: ${typedError.message || 'An unknown error occurred'}. Code: ${typedError.code || 'N/A'}`
         );
+        // If the session looks invalid (common after project/credentials change), proactively sign out
+        const authLikelyInvalid =
+          typedError.code === '401' ||
+          typedError.code === '403' ||
+          typedError.code === 'PGRST301' ||
+          (typedError.message || '').toLowerCase().includes('jwt') ||
+          (typedError.message || '').toLowerCase().includes('token');
+
+        if (authLikelyInvalid) {
+          try {
+            console.warn('Profile fetch unauthorized; signing out to clear stale session');
+            await supabase.auth.signOut();
+          } catch {}
+          setSession(null);
+          sessionRef.current = null;
+          lastUserIdRef.current = null;
+          setProfile(null);
+          profileRef.current = null;
+          setKpiData([]);
+          setCampaigns([]);
+          setGoals([]);
+          return;
+        }
+
         if (typedError.code === '42P01') {
           showToast('Database error: A required table is missing. Run the setup SQL.', 'error');
         } else {
           showToast('Error fetching user profile.', 'error');
         }
         const fallbackProfile: Profile = { role: 'staff', teamId: -1, teamName: 'Error' };
+        try { console.warn('Profile fetch failed; using fallback profile'); } catch {}
         setProfile(fallbackProfile);
         profileRef.current = fallbackProfile;
       }
@@ -250,6 +359,7 @@ const App: React.FC = () => {
       }
 
       gotInitialEvent = true;
+      try { console.debug('Auth event', { event, hasSession: Boolean(session) }); } catch {}
       const sameUser = session?.user?.id && session.user.id === lastUserIdRef.current;
 
       // Silent updates shouldn't toggle the global loading spinner
@@ -359,6 +469,9 @@ const App: React.FC = () => {
 
     let cancelled = false;
 
+    const isDocumentVisible = () =>
+      typeof document !== 'undefined' && document.visibilityState === 'visible';
+
     const watchdog = window.setTimeout(() => {
       const startedAt = loadingSinceRef.current;
       if (!startedAt) {
@@ -367,6 +480,16 @@ const App: React.FC = () => {
 
       const elapsed = Date.now() - startedAt;
       if (elapsed < 8000) {
+        return;
+      }
+
+      // Avoid triggering network calls while the page is backgrounded or offline
+      if (!isDocumentVisible() || (typeof navigator !== 'undefined' && navigator && navigator.onLine === false)) {
+        // Defer clearing spinner until we regain visibility/online; a new init will run then
+        if (!cancelled) {
+          setIsLoading(false);
+          loadingSinceRef.current = null;
+        }
         return;
       }
 
@@ -384,6 +507,7 @@ const App: React.FC = () => {
           console.error('Emergency session refresh failed:', error);
         } finally {
           if (!cancelled) {
+            // Always clear the spinner as a last resort; auth listeners will re-toggle if needed
             setIsLoading(false);
             loadingSinceRef.current = null;
           }
@@ -393,11 +517,52 @@ const App: React.FC = () => {
       void refreshSession();
     }, 8000);
 
+    const onPageShow = () => {
+      // If we return to the tab and were stuck in loading, clear it and let init handlers run
+      if (!cancelled && isLoading) {
+        setIsLoading(false);
+        loadingSinceRef.current = null;
+      }
+    };
+
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('pageshow', onPageShow);
+      window.addEventListener('focus', onPageShow);
+    }
+
     return () => {
       cancelled = true;
       window.clearTimeout(watchdog);
+      if (typeof window.removeEventListener === 'function') {
+        window.removeEventListener('pageshow', onPageShow);
+        window.removeEventListener('focus', onPageShow);
+      }
     };
   }, [isLoading]);
+
+  // Safety net: if we have both session and profile, ensure spinner is off
+  useEffect(() => {
+    if (isLoading && session && profile) {
+      setIsLoading(false);
+      loadingSinceRef.current = null;
+    }
+  }, [isLoading, session, profile]);
+
+  // If a session exists but profile hasn’t resolved within a short window, use a safe fallback profile.
+  useEffect(() => {
+    if (!session || profile) return;
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      if (cancelled || profile || !session) return;
+      try { console.warn('Profile resolution timeout; applying fallback profile'); } catch {}
+      const fallbackProfile: Profile = { role: 'staff', teamId: -1, teamName: 'Unknown Team' };
+      setProfile(fallbackProfile);
+      profileRef.current = fallbackProfile;
+      setIsLoading(false);
+      loadingSinceRef.current = null;
+    }, 4000);
+    return () => { cancelled = true; window.clearTimeout(t); };
+  }, [session, profile]);
 
 
   const addKpiDataPoint = useCallback(async (newDataPoint: Omit<KpiDataPoint, 'id'>) => {
@@ -512,13 +677,14 @@ const App: React.FC = () => {
     }
   };
 
-  if (isLoading) {
-    return <Spinner />;
-  }
-
-  // If there is no session, show Auth
+  // Prefer showing Auth over a global spinner if there is no session.
+  // This avoids getting stuck behind the spinner when session restore fails.
   if (!session) {
     return <Auth />;
+  }
+
+  if (isLoading) {
+    return <Spinner />;
   }
 
   // If session exists but profile hasn't been resolved yet, keep showing a spinner
