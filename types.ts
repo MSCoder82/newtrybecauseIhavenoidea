@@ -28,6 +28,8 @@ export interface Campaign {
   description: string;
   start_date: string;
   end_date: string;
+  team_id?: number;
+  user_id?: string;
 }
 
 export interface KpiGoal {

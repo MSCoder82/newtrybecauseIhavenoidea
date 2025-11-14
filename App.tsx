@@ -589,9 +589,12 @@ const App: React.FC = () => {
         showToast("No user session found. Cannot add campaign.", 'error');
         return;
     }
-    // team_id will be set by a database trigger based on the user's profile
+    if (profile?.teamId === undefined || profile.teamId === null) {
+        showToast("Missing team information. Please refresh and try again.", 'error');
+        return;
+    }
     const { error } = await supabase.from('campaigns').insert([
-        { ...newCampaign, user_id: session.user.id }
+        { ...newCampaign, user_id: session.user.id, team_id: profile.teamId }
     ]);
 
     if (error) {
@@ -601,7 +604,7 @@ const App: React.FC = () => {
         await fetchCampaigns(); // Refetch campaigns
         showToast("Campaign created successfully!", 'success');
     }
-  }, [session, fetchCampaigns, showToast]);
+  }, [session, profile, fetchCampaigns, showToast]);
 
   const addGoal = useCallback(async (newGoal: Omit<KpiGoal, 'id'>) => {
     if (!session?.user) {
